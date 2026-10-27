@@ -32,6 +32,8 @@ public final class NarrationHelper {
     private int page, lastPage, serial;
     private String text = "";
     private int offset;
+    private int spokenOffset;
+    private int chunkOffset;
     private String currentChunk = "";
     private final List<Voice> voices = new ArrayList<>();
 
@@ -50,8 +52,14 @@ public final class NarrationHelper {
                     @Override public void onDone(String id) {
                         activity.runOnUiThread(() -> {
                             if (!playing || paused || !id.equals("hojas-"+serial)) return;
-                            offset+=currentChunk.length();
+                            offset=chunkOffset+currentChunk.length();
                             speakNext();
+                        });
+                    }
+                    @Override public void onRangeStart(String id,int start,int end,int frame) {
+                        activity.runOnUiThread(()->{
+                            if(playing && !paused && id.equals("hojas-"+serial))
+                                spokenOffset=Math.max(spokenOffset,chunkOffset+start);
                         });
                     }
                     @Override public void onError(String id) {
@@ -135,7 +143,7 @@ public final class NarrationHelper {
         if(!initialized){host.notice("No hay motor de voz preparado. Revisa Voces.");return;}
         if(count<=0)return;
         stop();
-        playing=true;paused=false;lastPage=count-1;page=fromPage;offset=0;text="";
+        playing=true;paused=false;lastPage=count-1;page=fromPage;offset=0;spokenOffset=0;text="";
         loadCurrentPage();
         host.stateChanged();
     }
@@ -148,7 +156,7 @@ public final class NarrationHelper {
             if(!playing || paused || token!=serial)return;
             text=body==null?"":body;
             if(text.startsWith("Esta página no contiene texto seleccionable."))text="";
-            offset=0;speakNext();
+            offset=0;spokenOffset=0;speakNext();
         });
     }
     private void speakNext() {
@@ -172,6 +180,8 @@ public final class NarrationHelper {
                 if(space>offset+300)end=space+1;
             }
         }
+        chunkOffset=offset;
+        spokenOffset=offset;
         currentChunk=text.substring(offset,end);
         ++serial;
         int result=tts.speak(currentChunk,TextToSpeech.QUEUE_FLUSH,new Bundle(),"hojas-"+serial);
@@ -182,6 +192,7 @@ public final class NarrationHelper {
     public void pause() {
         if(!playing || paused)return;
         paused=true;serial++;
+        offset=Math.max(offset,spokenOffset);
         tts.stop();
         host.stateChanged();
     }
