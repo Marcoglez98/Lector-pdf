@@ -26,16 +26,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Instalar SDK Android
-        uses: android-actions/setup-android@v3
-
       - name: Instalar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
       - name: Instalar plataforma Android 35
-        run: yes | sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: |
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Crear APK
         run: gradle --no-daemon --stacktrace :app:assembleDebug
