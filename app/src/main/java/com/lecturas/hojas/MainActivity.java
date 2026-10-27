@@ -727,6 +727,176 @@ public class MainActivity extends Activity {
         send.putExtra(Intent.EXTRA_TEXT,"“"+quote+"”\n\n— "+bookName+", página "+(page+1));
         startActivity(Intent.createChooser(send,"Compartir frase"));
     }
+    // MARCADOR SOBRE EL PDF: conservar coordenadas normalizadas por documento y página.
+    private void setAnnotationMode(int mode) {
+        if(textMode)return;
+        annotationMode=mode;
+        if(curlView!=null)curlView.setAnnotationTool(annotationMode);
+        updateAnnotationButtons();
+        updatePageUI();
+        if(mode==1)toast("Arrastra el dedo sobre una frase para subrayarla.");
+        if(mode==2)toast("Toca la frase coloreada para borrarla.");
+    }
+    private void updateAnnotationButtons(){
+        if(markerButton==null||eraserButton==null)return;
+        markerButton.setBackground(bg(annotationMode==1?ACCENT:WHITE,13,Color.TRANSPARENT));
+        eraserButton.setBackground(bg(annotationMode==2?ACCENT:WHITE,13,Color.TRANSPARENT));
+        markerButton.setTextColor(annotationMode==1?Color.WHITE:ACCENT);
+        eraserButton.setTextColor(annotationMode==2?Color.WHITE:ACCENT);
+    }
+    private List<RectF> markRects(JSONObject mark) {
+        JSONArray explicit=mark.optJSONArray("rects");
+        if(explicit!=null)return PdfTextGeometry.rectangles(explicit);
+        if(currentGeometry!=null){
+            PdfTextGeometry.Selection match=currentGeometry.matchQuote(mark.optString("quote",""));
+            if(match!=null)return PdfTextGeometry.rectangles(match.rects);
+        }
+        return new ArrayList<>();
+    }
+    private void refreshBookMarks(){
+        if(curlView==null)return;
+        List<PageCurlView.Ink> visible=new ArrayList<>();
+        JSONArray data=readMarks();
+        for(int i=0;i<data.length();i++){
+            JSONObject mark=data.optJSONObject(i);
+            if(mark!=null && mark.optInt("page",-1)==currentPage){
+                List<RectF> rects=markRects(mark);
+                if(!rects.isEmpty())visible.add(new PageCurlView.Ink(rects,
+                    mark.optInt("color",0xFFFFE69A)));
+            }
+        }
+        curlView.setMarks(visible);
+    }
+    private void highlightBook(float x0,float y0,float x1,float y1){
+        if(busy || geometryPage!=currentPage || currentGeometry==null){
+            toast("Preparando selección de texto en esta hoja.");return;
+        }
+        PdfTextGeometry.Selection selected=currentGeometry.select(x0,y0,x1,y1);
+        if(selected==null){
+            toast("No encontré texto en esa parte del PDF. Prueba otra frase.");return;
+        }
+        int page=currentPage,color=0xFFFFD96B;
+        for(int i=0;i<readMarks().length();i++){
+            JSONObject existing=readMarks().optJSONObject(i);
+            if(existing!=null && existing.optInt("page",-1)==page &&
+                existing.optString("quote","").equals(selected.quote)){
+                toast("Esa frase ya está subrayada.");return;
+            }
+        }
+        curlView.animateInk(PdfTextGeometry.rectangles(selected.rects),color,false,()->{
+            try {
+                JSONObject item=new JSONObject();
+                item.put("page",page);item.put("start",-1);item.put("end",-1);
+                item.put("quote",selected.quote);item.put("rects",selected.rects);
+                item.put("color",color);item.put("time",System.currentTimeMillis());
+                JSONArray all=readMarks();all.put(item);
+                prefs.edit().putString("marks_"+bookKey,all.toString()).apply();
+                refreshBookMarks();
+                toast("✦ Frase subrayada y guardada en Favoritos.");
+            }catch(Exception ex){toast("No se pudo guardar la marca.");}
+        });
+    }
+    private void eraseBookMark(float x,float y){
+        if(busy)return;
+        JSONArray data=readMarks();
+        for(int i=data.length()-1;i>=0;i--){
+            JSONObject item=data.optJSONObject(i);
+            if(item==null||item.optInt("page",-1)!=currentPage)continue;
+            List<RectF> rects=markRects(item);
+            for(RectF rect:rects){
+                if(new RectF(rect.left-0.016f,rect.top-0.016f,
+                    rect.right+0.016f,rect.bottom+0.016f).contains(x,y)){
+                    final int index=i;
+                    curlView.animateInk(rects,item.optInt("color",0xFFFFD96B),true,()->{
+                        removeMark(index);toast("Subrayado borrado.");
+                    });
+                    return;
+                }
+            }
+        }
+        toast("Toca una frase resaltada para usar el borrador.");
+    }
+
+    // NARRADOR: voces provistas por el motor de síntesis instalado en Android.
+    private void updateNarrationButton(){
+        if(narrationButton==null||narrator==null)return;
+        narrationButton.setText(narrator.isPaused()?"▶ Continuar":
+            narrator.isPlaying()?"Ⅱ Pausar":"▶ Leer");
+    }
+    private void toggleNarration(){
+        if(narrator==null)return;
+        if(!narrator.isReady()){showVoiceDialog();return;}
+        if(narrator.isPaused()){narrator.resume();return;}
+        if(narrator.isPlaying()){narrator.pause();return;}
+        narrator.start(currentPage,totalPages);
+    }
+    private void showVoiceDialog(){
+        if(narrator==null)return;
+        ScrollView rootScroll=new ScrollView(this);
+        LinearLayout panel=vertical();
+        panel.setPadding(dp(18),dp(4),dp(18),dp(6));
+        rootScroll.addView(panel);
+        TextView intro=label("Elige una voz en español. La calidad y las voces sin conexión dependen del motor de Android.",14,MUTED,false);
+        intro.setLineSpacing(dp(2),1.1f);
+        margin(intro,panel,0,4,0,14);
+        List<Voice> voices=narrator.getVoices();
+        if(voices.isEmpty()){
+            margin(label("Aún no hay voces en español disponibles. Descarga datos del motor de voz.",15,INK,false),
+                panel,0,0,0,12);
+        } else {
+            TextView heading=label("VOCES DISPONIBLES ("+voices.size()+")",12,ACCENT,true);
+            margin(heading,panel,0,0,0,8);
+            ScrollView voiceScroll=new ScrollView(this);
+            LinearLayout voiceRows=vertical();
+            voiceScroll.addView(voiceRows);
+            for(Voice voice:voices){
+                String prefix=voice.getName().equals(narrator.selectedVoice())?"●  ":"○  ";
+                TextView option=clickable(prefix+narrator.voiceLabel(voice),13,INK,WHITE,()->{
+                    if(narrator.selectVoice(voice.getName())){
+                        toast("Voz seleccionada: "+voice.getLocale().toLanguageTag());
+                        for(int j=0;j<voiceRows.getChildCount();j++){
+                            TextView row=(TextView)voiceRows.getChildAt(j);
+                            Voice v=voices.get(j);
+                            row.setText((v.getName().equals(narrator.selectedVoice())?"●  ":"○  ")+narrator.voiceLabel(v));
+                        }
+                    }else toast("La voz requiere descargar sus datos.");
+                });
+                option.setGravity(Gravity.CENTER_VERTICAL);
+                option.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
+                option.setPadding(dp(12),dp(8),dp(10),dp(8));
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+                p.bottomMargin=dp(6);voiceRows.addView(option,p);
+            }
+            panel.addView(voiceScroll,new LinearLayout.LayoutParams(-1,dp(244)));
+        }
+        LinearLayout actions=horizontal();
+        TextView sample=clickable("▶ Muestra",14,Color.WHITE,ACCENT,()->narrator.preview());
+        TextView download=clickable("↓ Descargar voces",14,ACCENT,0xFFECE0CF,()->narrator.installVoiceData());
+        LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(0,dp(47),1);
+        c.rightMargin=dp(8);actions.addView(sample,c);
+        actions.addView(download,new LinearLayout.LayoutParams(0,dp(47),1.2f));
+        margin(actions,panel,0,12,0,14);
+        TextView title=label("VELOCIDAD DE NARRACIÓN",12,ACCENT,true);
+        margin(title,panel,0,0,0,3);
+        TextView speed=label(String.format(Locale.US,"%.2f×",narrator.getRate()),15,INK,true);
+        margin(speed,panel,0,0,0,0);
+        SeekBar control=new SeekBar(this);
+        control.setMax(85);control.setProgress(Math.round(narrator.getRate()*100)-65);
+        control.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        control.setThumbTintList(ColorStateList.valueOf(ACCENT));
+        control.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar s,int p,boolean fromUser){
+                if(fromUser){float rate=(65+p)/100f;narrator.setRate(rate);
+                    speed.setText(String.format(Locale.US,"%.2f×",rate));}
+            }
+            @Override public void onStartTrackingTouch(SeekBar s){}
+            @Override public void onStopTrackingTouch(SeekBar s){}
+        });
+        panel.addView(control);
+        new AlertDialog.Builder(this).setTitle("🎙 Narrador · Voces").setView(rootScroll)
+            .setPositiveButton("Listo",null).show();
+    }
+
     private void showSettings() {
         String anim=animatedPages?"activada":"desactivada";
         new AlertDialog.Builder(this).setTitle("Preferencias de lectura")
