@@ -4,7 +4,7 @@
         <intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>
     </queries>
     <application android:allowBackup="true"
-        android:label="Hojas · Lector PDF"
+        android:label="${hojasName}"
         android:theme="@style/BookTheme"
         android:icon="@drawable/ic_book"
         android:usesCleartextTraffic="false"
