@@ -36,11 +36,18 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Crear APK
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:assemblePrincipalDebug :app:assemblePruebaDebug
 
-      - name: Publicar instalador
+      - name: Publicar instalador principal
         uses: actions/upload-artifact@v4
         with:
-          name: Hojas-Lector-PDF-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Hojas-1.1-Actualizacion
+          path: app/build/outputs/apk/principal/debug/app-principal-debug.apk
+          if-no-files-found: error
+
+      - name: Publicar prueba independiente
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hojas-1.1-Narrador-Prueba
+          path: app/build/outputs/apk/prueba/debug/app-prueba-debug.apk
           if-no-files-found: error
