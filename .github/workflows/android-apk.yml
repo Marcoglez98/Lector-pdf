@@ -14,9 +14,8 @@ jobs:
       - name: Obtener repositorio
         uses: actions/checkout@v4
 
-      - name: Reconstruir proyecto fuente
+      - name: Comprobar archivos Android
         run: |
-          base64 --decode source/hojas-core.tar.xz.b64 | tar -xJf -
           test -f app/src/main/java/com/lecturas/hojas/MainActivity.java
           test -f app/src/main/java/com/lecturas/hojas/PageCurlView.java
 

@@ -16,7 +16,7 @@ Proyecto Android en Java para leer PDF como un libro físico, con transiciones s
 4. Extrae el archivo `app-debug.apk` del ZIP y ábrelo desde tu teléfono.
 
 ## Código fuente
-Para la primera compilación el proyecto se incluye en `source/hojas-core.tar.xz.b64`, comprimido y codificado en Base64. El workflow lo reconstruye antes de compilar. El código Java y la configuración están dentro del archivo; no incluye datos de usuarios.
+El proyecto completo está disponible directamente en `app/src/main/java/com/lecturas/hojas/`, con los archivos `MainActivity.java` y `PageCurlView.java`. Las carpetas `app/` y `.github/workflows/` permiten editar y recompilar desde GitHub.
 
 ## Notas
 Los favoritos se guardan en la aplicación, no modifican el PDF original. Los PDF escaneados sin capa de texto requieren OCR para seleccionar frases. Esta versión aún debe verificarse con una compilación y pruebas en Android.
