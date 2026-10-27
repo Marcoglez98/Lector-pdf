@@ -1,0 +1,702 @@
+package com.lecturas.hojas;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
+import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.pdf.PdfRenderer;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
+import android.provider.OpenableColumns;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.TextUtils;
+import android.text.style.BackgroundColorSpan;
+import android.view.ActionMode;
+import android.view.Gravity;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.ScrollView;
+import android.widget.SeekBar;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import com.tom_roush.pdfbox.pdmodel.PDDocument;
+import com.tom_roush.pdfbox.text.PDFTextStripper;
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * Hojas — lector offline de archivos PDF con modo libro, texto ajustable y
+ * resaltados persistentes por documento. No modifica el archivo PDF original.
+ */
+public class MainActivity extends Activity {
+    private static final int PICK_PDF = 1701;
+    private static final int MENU_HIGHLIGHT = 707;
+    private static final int INK = Color.rgb(57, 43, 34);
+    private static final int MUTED = Color.rgb(126, 108, 91);
+    private static final int ACCENT = Color.rgb(143, 94, 58);
+    private static final int PAPER = Color.rgb(247, 241, 231);
+    private static final int WHITE = Color.rgb(255, 252, 247);
+    private static final int LINE = Color.rgb(225, 212, 197);
+    private static final int DARK = Color.rgb(27, 31, 39);
+
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final HashMap<Integer, String> extractedTextCache = new HashMap<>();
+    private SharedPreferences prefs;
+    private FrameLayout screen;
+    private PdfRenderer renderer;
+    private ParcelFileDescriptor pdfDescriptor;
+    private PDDocument pdfTextDocument;
+    private File currentCachedFile;
+    private Uri currentUri;
+    private String bookKey = "";
+    private String bookName = "";
+    private int totalPages = 0;
+    private int currentPage = 0;
+    private boolean textMode = false;
+    private boolean busy = false;
+    private int requestVersion = 0;
+    private int openVersion = 0;
+    private int pendingScrollOffset = -1;
+    private boolean pendingOpenAnimation = false;
+    private float fontSizeSp = 21f;
+    private boolean nightMode = false;
+    private boolean animatedPages = true;
+
+    private LinearLayout readerLayout;
+    private FrameLayout readingSurface;
+    private PageCurlView curlView;
+    private ScrollView textScroll;
+    private TextView textView;
+    private TextView pageCounter;
+    private TextView modeBookButton;
+    private TextView modeTextButton;
+    private TextView readingTitle;
+    private SeekBar pageSeek;
+    private ProgressBar pageLoading;
+
+    @Override protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        prefs = getSharedPreferences("hojas_reader_v1", MODE_PRIVATE);
+        fontSizeSp = prefs.getFloat("fontsize",21f);
+        nightMode = prefs.getBoolean("night",false);
+        animatedPages = prefs.getBoolean("animate",true);
+        PDFBoxResourceLoader.init(getApplicationContext());
+        screen = new FrameLayout(this);
+        setContentView(screen);
+        showLibrary();
+        if (state!=null && state.getString("openedUri")!=null) {
+            openPdf(Uri.parse(state.getString("openedUri")));
+        } else if (getIntent()!=null && getIntent().getData()!=null &&
+                Intent.ACTION_VIEW.equals(getIntent().getAction())) {
+            openPdf(getIntent().getData());
+        }
+    }
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (readerLayout!=null && readerLayout.getParent()!=null && currentUri!=null)
+            outState.putString("openedUri",currentUri.toString());
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent!=null && intent.getData()!=null) openPdf(intent.getData());
+    }
+
+    private int dp(float value) { return (int)(value * getResources().getDisplayMetrics().density + 0.5f); }
+    private GradientDrawable bg(int fill, int corner, int stroke) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(corner));
+        if (stroke!=Color.TRANSPARENT) drawable.setStroke(dp(1),stroke);
+        return drawable;
+    }
+    private TextView label(String content, int size, int color, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(content);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        if (bold) t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        return t;
+    }
+    private TextView clickable(String content, int size, int fg, int fill, Runnable handler) {
+        TextView t = label(content,size,fg,true);
+        t.setGravity(Gravity.CENTER);
+        t.setBackground(bg(fill,13,Color.TRANSPARENT));
+        t.setPadding(dp(13),dp(10),dp(13),dp(10));
+        t.setOnClickListener(v -> handler.run());
+        return t;
+    }
+    private LinearLayout vertical() { LinearLayout l=new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); return l; }
+    private LinearLayout horizontal() { LinearLayout l=new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
+    private void margin(View v,LinearLayout parent,int l,int t,int r,int b) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.setMargins(dp(l),dp(t),dp(r),dp(b)); parent.addView(v,p);
+    }
+    private View line() {
+        View v=new View(this); v.setBackgroundColor(LINE);
+        v.setLayoutParams(new LinearLayout.LayoutParams(-1,dp(1)));
+        return v;
+    }
+    private void setSystemBars(boolean dark) {
+        getWindow().setStatusBarColor(dark ? DARK : PAPER);
+        getWindow().setNavigationBarColor(dark ? DARK : PAPER);
+        int f = dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        getWindow().getDecorView().setSystemUiVisibility(f);
+    }
+
+    private void showLibrary() {
+        requestVersion++;
+        setSystemBars(false);
+        screen.removeAllViews();
+        ScrollView sc = new ScrollView(this);
+        sc.setFillViewport(true);
+        sc.setBackgroundColor(PAPER);
+        LinearLayout root=vertical(); root.setPadding(dp(24),dp(28),dp(24),dp(26));
+        sc.addView(root);
+        TextView brand=label("HOJAS  /  LECTOR PDF",12,ACCENT,true);
+        brand.setLetterSpacing(0.17f); margin(brand,root,0,0,0,48);
+        TextView logo=label("◕",62,ACCENT,false); logo.setTypeface(Typeface.SERIF);
+        margin(logo,root,0,0,0,8);
+        TextView header=label("Tu biblioteca,\na tu manera.",38,INK,true);
+        header.setTypeface(Typeface.create("serif",Typeface.BOLD));
+        margin(header,root,0,0,0,12);
+        TextView sub=label("Abre tus libros en PDF, pasa sus hojas con suavidad y guarda las frases que quieras recordar.",16,MUTED,false);
+        sub.setLineSpacing(dp(4),1.1f); margin(sub,root,0,0,0,29);
+        TextView open=clickable("＋   Abrir un PDF",18,Color.WHITE,ACCENT,this::pickPdf);
+        margin(open,root,0,0,0,28);
+
+        String recent = prefs.getString("lastUri",null);
+        if (recent!=null) {
+            TextView recentTitle=label("CONTINUAR LEYENDO",12,ACCENT,true);
+            recentTitle.setLetterSpacing(0.12f); margin(recentTitle,root,0,5,0,12);
+            LinearLayout recentCard=vertical();
+            recentCard.setPadding(dp(18),dp(17),dp(18),dp(17));
+            recentCard.setBackground(bg(WHITE,17,LINE));
+            TextView name=label("▤   "+prefs.getString("lastName","Mi libro"),17,INK,true);
+            name.setMaxLines(2); name.setEllipsize(TextUtils.TruncateAt.END);
+            recentCard.addView(name);
+            TextView hint=label("Toca para continuar donde te quedaste",13,MUTED,false);
+            LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.topMargin=dp(8);recentCard.addView(hint,hp);
+            recentCard.setOnClickListener(v -> openPdf(Uri.parse(recent)));
+            margin(recentCard,root,0,0,0,25);
+        }
+        LinearLayout tip=vertical();tip.setPadding(dp(17),dp(16),dp(17),dp(17));
+        tip.setBackground(bg(0xFFEDE3D4,18,Color.TRANSPARENT));
+        TextView tip1=label("✦  Un rincón para tus frases",16,INK,true);
+        TextView tip2=label("En el modo Texto puedes mantener pulsada una palabra, ajustar la selección y elegir Resaltar. Tus frases se guardan en Favoritos.",14,MUTED,false);
+        tip2.setLineSpacing(dp(3),1.1f);
+        tip.addView(tip1);
+        LinearLayout.LayoutParams x=new LinearLayout.LayoutParams(-1,-2);x.topMargin=dp(10);tip.addView(tip2,x);
+        margin(tip,root,0,0,0,0);
+        screen.addView(sc);
+    }
+
+    private void pickPdf() {
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.setType("application/pdf");
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try { startActivityForResult(i,PICK_PDF); }
+        catch (ActivityNotFoundException ex) { toast("No se encontró una aplicación para elegir archivos."); }
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data);
+        if (request==PICK_PDF && result==RESULT_OK && data!=null && data.getData()!=null) {
+            Uri u=data.getData();
+            try { getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+            catch (Exception ignored) { }
+            openPdf(u);
+        }
+    }
+    private String getFileName(Uri uri) {
+        String name=null;
+        try (Cursor c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)) {
+            if (c!=null && c.moveToFirst()) name=c.getString(0);
+        } catch (Exception ignored) { }
+        if (name==null || name.trim().isEmpty()) name=uri.getLastPathSegment();
+        return name==null ? "Mi libro.pdf" : name;
+    }
+    private String hash(String str) {
+        try {
+            byte[] d=MessageDigest.getInstance("SHA-256").digest(str.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder s=new StringBuilder();
+            for (int i=0;i<12;i++) s.append(String.format(Locale.US,"%02x",d[i]));
+            return s.toString();
+        } catch (Exception e) { return Integer.toHexString(str.hashCode()); }
+    }
+    private void openPdf(Uri uri) {
+        final int version=++openVersion;
+        requestVersion++;
+        busy=true;
+        currentUri=uri;
+        bookKey=hash(uri.toString());
+        bookName=getFileName(uri);
+        if (bookName.toLowerCase(Locale.ROOT).endsWith(".pdf")) bookName=bookName.substring(0,bookName.length()-4);
+        final String storedBookName=bookName;
+        final String storedBookKey=bookKey;
+        screen.removeAllViews();
+        setSystemBars(false);
+        LinearLayout loading=vertical(); loading.setGravity(Gravity.CENTER); loading.setPadding(dp(24),dp(24),dp(24),dp(24)); loading.setBackgroundColor(PAPER);
+        TextView cover=label("◕",62,ACCENT,false);cover.setGravity(Gravity.CENTER);loading.addView(cover);
+        ProgressBar progress=new ProgressBar(this); progress.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+        LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(dp(40),dp(40));pp.gravity=Gravity.CENTER;pp.topMargin=dp(22);loading.addView(progress,pp);
+        TextView wait=label("Preparando tus páginas…",17,INK,true);wait.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(-1,-2);wp.topMargin=dp(24);loading.addView(wait,wp);
+        screen.addView(loading);
+        io.execute(() -> {
+            try {
+                closeOpenedDocuments();
+                File cached=new File(getCacheDir(),"hojas-"+storedBookKey+".pdf");
+                try (InputStream in=getContentResolver().openInputStream(uri);
+                     FileOutputStream out=new FileOutputStream(cached,false)) {
+                    if (in==null) throw new IllegalStateException("No se puede abrir este archivo");
+                    byte[] buf=new byte[65536]; int n;
+                    while ((n=in.read(buf))!=-1) out.write(buf,0,n);
+                }
+                pdfDescriptor=ParcelFileDescriptor.open(cached,ParcelFileDescriptor.MODE_READ_ONLY);
+                renderer=new PdfRenderer(pdfDescriptor);
+                int pages=renderer.getPageCount();
+                currentCachedFile=cached;
+                // La extracción de texto se carga solo cuando el usuario la necesita.
+                extractedTextCache.clear();
+                runOnUiThread(() -> {
+                    if (version!=openVersion || isFinishing()) return;
+                    totalPages=pages;
+                    currentPage=Math.min(pages-1,Math.max(0,prefs.getInt("position_"+storedBookKey,0)));
+                    textMode=false;
+                    prefs.edit().putString("lastUri",uri.toString()).putString("lastName",storedBookName).apply();
+                    busy=false;
+                    showReader();
+                    loadPageAt(currentPage,false,true);
+                });
+            } catch (Exception e) {
+                String message = e.getMessage()==null ? "No se pudo leer el PDF" : e.getMessage();
+                closeOpenedDocuments();
+                runOnUiThread(() -> {
+                    if (version!=openVersion || isFinishing()) return;
+                    busy=false; showLibrary();
+                    new AlertDialog.Builder(this).setTitle("No se pudo abrir el PDF")
+                        .setMessage(message+"\n\nComprueba que no esté protegido por contraseña.")
+                        .setPositiveButton("Aceptar",null).show();
+                });
+            }
+        });
+    }
+    private void closeOpenedDocuments() {
+        try { if (pdfTextDocument!=null) pdfTextDocument.close(); } catch (Exception ignored) { }
+        try { if (renderer!=null) renderer.close(); } catch (Exception ignored) { }
+        try { if (pdfDescriptor!=null) pdfDescriptor.close(); } catch (Exception ignored) { }
+        pdfTextDocument=null; renderer=null;pdfDescriptor=null;currentCachedFile=null;
+    }
+
+    private void showReader() {
+        pendingOpenAnimation=true;
+        setSystemBars(nightMode);
+        screen.removeAllViews();
+        readerLayout=vertical();readerLayout.setBackgroundColor(nightMode ? DARK : PAPER);
+        screen.addView(readerLayout,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout toolbar=horizontal();
+        toolbar.setPadding(dp(12),dp(9),dp(12),dp(9));
+        TextView back=clickable("‹",29,nightMode?WHITE:INK,Color.TRANSPARENT,this::showLibrary);
+        toolbar.addView(back,new LinearLayout.LayoutParams(dp(46),dp(48)));
+        readingTitle=label(bookName,16,nightMode?WHITE:INK,true);
+        readingTitle.setSingleLine(true);readingTitle.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams nameParams=new LinearLayout.LayoutParams(0,-2,1); nameParams.leftMargin=dp(7);toolbar.addView(readingTitle,nameParams);
+        TextView fav=clickable("☆",25,ACCENT,Color.TRANSPARENT,this::showFavorites);
+        fav.setContentDescription("Abrir frases favoritas");toolbar.addView(fav);
+        TextView settings=clickable("⚙",22,nightMode?WHITE:INK,Color.TRANSPARENT,this::showSettings);
+        settings.setContentDescription("Preferencias de lectura");toolbar.addView(settings);
+        readerLayout.addView(toolbar);
+        View border=line();if(nightMode) border.setBackgroundColor(0xFF41434B);readerLayout.addView(border);
+
+        LinearLayout modes=horizontal();modes.setPadding(dp(18),dp(11),dp(18),dp(10));
+        modeBookButton=clickable("▣  Libro",14,INK,WHITE,()->switchMode(false));
+        modeTextButton=clickable("☷  Texto ajustable",14,INK,WHITE,()->switchMode(true));
+        LinearLayout.LayoutParams a=new LinearLayout.LayoutParams(0,dp(44),1);a.rightMargin=dp(10);modes.addView(modeBookButton,a);
+        modes.addView(modeTextButton,new LinearLayout.LayoutParams(0,dp(44),1.4f));
+        readerLayout.addView(modes);
+
+        readingSurface=new FrameLayout(this);
+        LinearLayout.LayoutParams center=new LinearLayout.LayoutParams(-1,0,1);
+        readerLayout.addView(readingSurface,center);
+        curlView=new PageCurlView(this);
+        curlView.setListener(new PageCurlView.Listener() {
+            @Override public void onPageRequested(boolean next) { navigate(next); }
+            @Override public void onSelectionHint() {
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Seleccionar una frase")
+                    .setMessage("Cambia al modo Texto ajustable. Allí podrás seleccionar palabras, resaltar frases y guardarlas en Favoritos.")
+                    .setPositiveButton("Ir al modo Texto",(d,w)->switchMode(true))
+                    .setNegativeButton("Cancelar",null).show();
+            }
+        });
+        curlView.setPaperColor(nightMode?0xFF20232B:0xFFE9DECC,Color.WHITE);
+        readingSurface.addView(curlView,new FrameLayout.LayoutParams(-1,-1));
+        textScroll=new ScrollView(this);
+        textScroll.setFillViewport(true);
+        textScroll.setBackgroundColor(nightMode?DARK:WHITE);
+        textView=label("",(int)fontSizeSp,nightMode?0xFFF3F0EC:INK,false);
+        textView.setTypeface(Typeface.SERIF);
+        textView.setTextSize(fontSizeSp);
+        textView.setGravity(Gravity.TOP | Gravity.START);
+        textView.setTextIsSelectable(true);
+        textView.setLineSpacing(dp(7),1.16f);
+        textView.setPadding(dp(23),dp(27),dp(23),dp(36));
+        textView.setCustomSelectionActionModeCallback(new ActionMode.Callback() {
+            @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+                menu.add(0,MENU_HIGHLIGHT,3,"✦ Resaltar y guardar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                return true;
+            }
+            @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu) { return false; }
+            @Override public boolean onActionItemClicked(ActionMode mode,MenuItem item) {
+                if (item.getItemId()!=MENU_HIGHLIGHT) return false;
+                int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                CharSequence t=textView.getText();
+                if (start>=0 && end>start && end<=t.length()) {
+                    String quote=t.subSequence(start,end).toString();
+                    int capturedPage=currentPage;
+                    showHighlightPicker(capturedPage,start,end,quote);
+                } else toast("Selecciona una frase primero.");
+                mode.finish();
+                return true;
+            }
+            @Override public void onDestroyActionMode(ActionMode mode) { }
+        });
+        textScroll.addView(textView,new ScrollView.LayoutParams(-1,-2));
+        readingSurface.addView(textScroll,new FrameLayout.LayoutParams(-1,-1));
+        pageLoading=new ProgressBar(this);
+        pageLoading.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(dp(42),dp(42),Gravity.CENTER);
+        readingSurface.addView(pageLoading,lp);
+
+        LinearLayout controls=horizontal();controls.setPadding(dp(12),dp(7),dp(12),dp(7));
+        TextView smaller=clickable("A−",16,nightMode?WHITE:INK,Color.TRANSPARENT,()->changeSize(-1));
+        TextView larger=clickable("A+",16,nightMode?WHITE:INK,Color.TRANSPARENT,()->changeSize(+1));
+        TextView previous=clickable("‹",29,nightMode?WHITE:INK,Color.TRANSPARENT,()->navigate(false));
+        TextView following=clickable("›",29,nightMode?WHITE:INK,Color.TRANSPARENT,()->navigate(true));
+        controls.addView(smaller);controls.addView(larger);
+        pageSeek=new SeekBar(this);pageSeek.setMax(Math.max(0,totalPages-1));
+        pageSeek.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        pageSeek.setThumbTintList(ColorStateList.valueOf(ACCENT));
+        pageSeek.setProgressBackgroundTintList(ColorStateList.valueOf(LINE));
+        LinearLayout.LayoutParams seekParams=new LinearLayout.LayoutParams(0,dp(38),1);
+        seekParams.leftMargin=dp(4);seekParams.rightMargin=dp(4);controls.addView(pageSeek,seekParams);
+        pageSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            private boolean touched=false;
+            @Override public void onProgressChanged(SeekBar bar,int value,boolean user) { }
+            @Override public void onStartTrackingTouch(SeekBar bar) { touched=true; }
+            @Override public void onStopTrackingTouch(SeekBar bar) {
+                if (touched && !busy) loadPageAt(bar.getProgress(),animatedPages,bar.getProgress()>currentPage);
+                touched=false;
+            }
+        });
+        controls.addView(previous);controls.addView(following);
+        readerLayout.addView(controls);
+        pageCounter=label("",12,nightMode?0xFFBABAC0:MUTED,false);
+        pageCounter.setGravity(Gravity.CENTER);
+        pageCounter.setPadding(0,0,0,dp(12));
+        readerLayout.addView(pageCounter);
+        updateModeUI();updatePageUI();setLoading(false);
+    }
+
+    private void updateModeUI() {
+        if (curlView==null) return;
+        curlView.setVisibility(textMode?View.GONE:View.VISIBLE);
+        textScroll.setVisibility(textMode?View.VISIBLE:View.GONE);
+        modeBookButton.setBackground(bg(textMode?(nightMode?0xFF353943:WHITE):ACCENT,13,Color.TRANSPARENT));
+        modeTextButton.setBackground(bg(textMode?ACCENT:(nightMode?0xFF353943:WHITE),13,Color.TRANSPARENT));
+        modeBookButton.setTextColor(textMode?(nightMode?WHITE:INK):Color.WHITE);
+        modeTextButton.setTextColor(textMode?Color.WHITE:(nightMode?WHITE:INK));
+        if (!textMode) curlView.setPaperColor(nightMode?0xFF20232B:0xFFE9DECC,Color.WHITE);
+    }
+    private void updatePageUI() {
+        if (pageCounter!=null) pageCounter.setText("PÁGINA "+(currentPage+1)+" DE "+totalPages+"     ·     " +
+                (textMode?"MANTÉN PULSADO PARA RESALTAR":"DESLIZA PARA PASAR HOJA"));
+        if (pageSeek!=null) pageSeek.setProgress(currentPage);
+    }
+    private void setLoading(boolean isLoading) {
+        if (pageLoading!=null) pageLoading.setVisibility(isLoading?View.VISIBLE:View.GONE);
+    }
+    private void switchMode(boolean useText) {
+        if (busy || totalPages==0 || useText==textMode) return;
+        textMode=useText;
+        updateModeUI();updatePageUI();
+        loadPageAt(currentPage,false,true);
+    }
+    private void changeSize(int direction) {
+        if (textMode) {
+            fontSizeSp=Math.max(15f,Math.min(34f,fontSizeSp+direction*2));
+            textView.setTextSize(fontSizeSp);
+            prefs.edit().putFloat("fontsize",fontSizeSp).apply();
+            toast("Tamaño de letra: "+(int)fontSizeSp);
+        } else {
+            curlView.setZoom(curlView.getZoom() + direction*0.2f);
+            toast("Zoom de página: "+Math.round(curlView.getZoom()*100)+"%");
+        }
+    }
+    private void navigate(boolean next) {
+        if (busy) return;
+        int target=currentPage+(next?1:-1);
+        if (target<0 || target>=totalPages) {
+            toast(next?"Llegaste al final del libro":"Estás en la primera página");
+            return;
+        }
+        loadPageAt(target,animatedPages,next);
+    }
+    private void loadPageAt(int index, boolean withAnimation,boolean forward) {
+        if (busy || index<0 || index>=totalPages) return;
+        busy=true;setLoading(true);
+        final int loadRequest=++requestVersion;
+        final boolean loadText=textMode;
+        io.execute(() -> {
+            try {
+                if (loadText) {
+                    String text=extractText(index);
+                    runOnUiThread(() -> {
+                        if (loadRequest!=requestVersion || isFinishing()) return;
+                        currentPage=index;
+                        showPageText(text);
+                        updatePageUI();rememberPosition();
+                        busy=false;setLoading(false);
+                    });
+                } else {
+                    Bitmap bitmap=renderBitmap(index);
+                    runOnUiThread(() -> {
+                        if (loadRequest!=requestVersion || isFinishing()) { bitmap.recycle(); return; }
+                        setLoading(false);
+                        curlView.turnTo(bitmap,forward,withAnimation && animatedPages,() -> {
+                            currentPage=index;updatePageUI();rememberPosition();busy=false;
+                            if (pendingOpenAnimation) {
+                                pendingOpenAnimation=false;
+                                curlView.openBook();
+                            }
+                        });
+                    });
+                }
+            } catch (Exception ex) {
+                String msg=ex.getMessage();
+                runOnUiThread(() -> {
+                    if (loadRequest!=requestVersion || isFinishing()) return;
+                    busy=false;setLoading(false);
+                    toast("Error en página "+(index+1)+": "+(msg==null?"PDF no compatible":msg));
+                });
+            }
+        });
+    }
+    private Bitmap renderBitmap(int pageNumber) throws Exception {
+        if (renderer==null) throw new IllegalStateException("El libro ya no está abierto");
+        try (PdfRenderer.Page pg=renderer.openPage(pageNumber)) {
+            float w=pg.getWidth(),h=pg.getHeight();
+                float minTarget=Math.min(2100f,Math.max(1150f,getResources().getDisplayMetrics().widthPixels * 1.6f));
+            float scale=Math.min(2500f / Math.max(w,h),minTarget/w);
+            int outW=Math.max(1,(int)(w*scale));
+            int outH=Math.max(1,(int)(h*scale));
+            Bitmap bmp=Bitmap.createBitmap(outW,outH,Bitmap.Config.ARGB_8888);
+            bmp.eraseColor(Color.WHITE);
+            pg.render(bmp,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+            return bmp;
+        }
+    }
+    private String extractText(int index) throws Exception {
+        String old=extractedTextCache.get(index);if(old!=null) return old;
+        if (pdfTextDocument==null) {
+            if (currentCachedFile==null) throw new IllegalStateException("No se pudo extraer el texto");
+            pdfTextDocument=PDDocument.load(currentCachedFile);
+        }
+        PDFTextStripper stripper=new PDFTextStripper();
+        stripper.setSortByPosition(true);
+        stripper.setStartPage(index+1);stripper.setEndPage(index+1);
+        String raw=stripper.getText(pdfTextDocument);
+        if (raw==null || raw.trim().isEmpty()) raw="Esta página no contiene texto seleccionable. Es posible que el PDF sea una imagen escaneada; puedes verla en modo Libro, pero para seleccionar frases necesitaría reconocimiento de texto (OCR).";
+        if (extractedTextCache.size()>12) extractedTextCache.clear();
+        extractedTextCache.put(index,raw);
+        return raw;
+    }
+    private void showPageText(String body) {
+        if (textView==null) return;
+        JSONArray highlights=readMarks();
+        SpannableString styled=new SpannableString(body);
+        for (int i=0;i<highlights.length();i++) {
+            JSONObject mark=highlights.optJSONObject(i);
+            if (mark==null || mark.optInt("page",-1)!=currentPage) continue;
+            int start=mark.optInt("start",-1),end=mark.optInt("end",-1);
+            String quote=mark.optString("quote","");
+            if (start<0 || end<=start || end>body.length() || !body.substring(start,end).equals(quote)) {
+                start=body.indexOf(quote);
+                end=start+quote.length();
+            }
+            if (start>=0 && end<=body.length() && start<end) {
+                styled.setSpan(new BackgroundColorSpan(mark.optInt("color",0xFFFFE69A)),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        textView.setText(styled,TextView.BufferType.SPANNABLE);
+        textView.setTextIsSelectable(!body.startsWith("Esta página no contiene texto seleccionable."));
+        textView.setTextSize(fontSizeSp);
+        textView.setTextColor(nightMode?0xFFF3F0EC:INK);
+        textScroll.scrollTo(0,0);
+        int scrollOffset=pendingScrollOffset;
+        pendingScrollOffset=-1;
+        if (scrollOffset>=0) textView.post(() -> {
+            Layout l=textView.getLayout();
+            if (l!=null && l.getLineCount()>0) {
+                int offset=Math.min(scrollOffset,textView.length());
+                textScroll.smoothScrollTo(0,Math.max(0,l.getLineTop(l.getLineForOffset(offset))-dp(50)));
+            }
+        });
+    }
+    private void rememberPosition() {
+        prefs.edit().putInt("position_"+bookKey,currentPage).apply();
+    }
+    private JSONArray readMarks() {
+        try { return new JSONArray(prefs.getString("marks_"+bookKey,"[]")); }
+        catch (Exception ignored) { return new JSONArray(); }
+    }
+    private void showHighlightPicker(int page,int start,int end,String quote) {
+        new AlertDialog.Builder(this).setTitle("Color del resaltado")
+            .setItems(new String[]{"Amarillo suave","Verde salvia","Rosa claro"},(d,which) -> {
+                int[] colors={0xFFFFE69A,0xFFBEDFC1,0xFFF6C4CE};
+                saveHighlight(page,start,end,quote,colors[which]);
+            }).show();
+    }
+    private void saveHighlight(int page,int start,int end,String quote,int color) {
+        JSONArray data=readMarks();
+        for (int i=0;i<data.length();i++) {
+            JSONObject old=data.optJSONObject(i);
+            if (old!=null && old.optInt("page",-1)==page && old.optInt("start",-1)==start && old.optString("quote").equals(quote)) {
+                toast("Esta frase ya está en favoritos");return;
+            }
+        }
+        try {
+            JSONObject item=new JSONObject();
+            item.put("page",page);item.put("start",start);item.put("end",end);
+            item.put("quote",quote);item.put("color",color);
+            item.put("time",System.currentTimeMillis());
+            data.put(item);
+            prefs.edit().putString("marks_"+bookKey,data.toString()).apply();
+            String currentBody=textView.getText().toString();
+            if (currentPage==page && textMode) showPageText(currentBody);
+            toast("✦ Frase resaltada y guardada en Favoritos");
+        } catch (Exception e) { toast("No se pudo guardar la frase"); }
+    }
+
+    private void showFavorites() {
+        JSONArray marks=readMarks();
+        if (marks.length()==0) {
+            new AlertDialog.Builder(this).setTitle("Tus frases favoritas")
+                .setMessage("Todavía no tienes frases guardadas en este libro. Entra al modo Texto, mantén pulsada una palabra y elige Resaltar y guardar.")
+                .setPositiveButton("Entendido",null).show();
+            return;
+        }
+        ScrollView sc=new ScrollView(this);
+        LinearLayout list=vertical();list.setPadding(dp(16),dp(12),dp(16),dp(8));
+        sc.addView(list);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("✦ Mis frases favoritas")
+            .setView(sc).setNegativeButton("Cerrar",null).create();
+        for (int i=0;i<marks.length();i++) {
+            JSONObject item=marks.optJSONObject(i);if(item==null) continue;
+            final int position=i;
+            int page=item.optInt("page",0);
+            LinearLayout card=vertical();card.setPadding(dp(14),dp(14),dp(14),dp(12));
+            card.setBackground(bg(nightMode?0xFF333B42:WHITE,12,LINE));
+            TextView quote=label("“"+item.optString("quote","").trim()+"”",16,nightMode?WHITE:INK,false);
+            quote.setTypeface(Typeface.SERIF);quote.setMaxLines(5);quote.setEllipsize(TextUtils.TruncateAt.END);
+            card.addView(quote);
+            LinearLayout lower=horizontal();
+            TextView foot=label("Página "+(page+1)+"  ·  Abrir",12,ACCENT,true);
+            lower.addView(foot,new LinearLayout.LayoutParams(0,-2,1));
+            TextView share=clickable("↗",18,ACCENT,Color.TRANSPARENT,()->shareQuote(item.optString("quote"),page));
+            share.setContentDescription("Compartir frase");lower.addView(share);
+            TextView delete=clickable("×",22,MUTED,Color.TRANSPARENT,()->{
+                removeMark(position);dialog.dismiss();showFavorites();
+            });
+            delete.setContentDescription("Eliminar frase guardada");lower.addView(delete);
+            LinearLayout.LayoutParams row=new LinearLayout.LayoutParams(-1,-2);row.topMargin=dp(9);card.addView(lower,row);
+            card.setOnClickListener(v->{
+                dialog.dismiss();pendingScrollOffset=item.optInt("start",0);
+                if (textMode) loadPageAt(page,false,true);
+                else {
+                    textMode=true;updateModeUI();updatePageUI();loadPageAt(page,false,true);
+                }
+            });
+            LinearLayout.LayoutParams margins=new LinearLayout.LayoutParams(-1,-2);
+            margins.bottomMargin=dp(10);list.addView(card,margins);
+        }
+        dialog.show();
+    }
+    private void removeMark(int index) {
+        JSONArray old=readMarks(), updated=new JSONArray();
+        for (int i=0;i<old.length();i++) if (i!=index) updated.put(old.opt(i));
+        prefs.edit().putString("marks_"+bookKey,updated.toString()).apply();
+        if (textMode) showPageText(textView.getText().toString());
+    }
+    private void shareQuote(String quote,int page) {
+        Intent send=new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT,"“"+quote+"”\n\n— "+bookName+", página "+(page+1));
+        startActivity(Intent.createChooser(send,"Compartir frase"));
+    }
+    private void showSettings() {
+        String anim=animatedPages?"activada":"desactivada";
+        new AlertDialog.Builder(this).setTitle("Preferencias de lectura")
+            .setItems(new String[]{"☀  Modo papel cálido","☾  Modo noche", "◒  Animación "+anim,
+                    "↺  Restablecer tamaño / zoom", "＋  Abrir otro PDF"}, (d,index) -> {
+                switch(index) {
+                    case 0: nightMode=false;prefs.edit().putBoolean("night",false).apply();rebuildReader();break;
+                    case 1: nightMode=true;prefs.edit().putBoolean("night",true).apply();rebuildReader();break;
+                    case 2: animatedPages=!animatedPages;prefs.edit().putBoolean("animate",animatedPages).apply();
+                        toast("Animación "+(animatedPages?"activada":"desactivada"));break;
+                    case 3: fontSizeSp=21;prefs.edit().putFloat("fontsize",fontSizeSp).apply();
+                        if (textMode) textView.setTextSize(fontSizeSp);else curlView.setZoom(1f);break;
+                    case 4: pickPdf();break;
+                }
+            }).show();
+    }
+    private void rebuildReader() {
+        if (busy) return;
+        showReader();loadPageAt(currentPage,false,true);
+    }
+    private void toast(String s) { Toast.makeText(this,s,Toast.LENGTH_SHORT).show(); }
+    @Override public void onBackPressed() {
+        if (readerLayout!=null && readerLayout.getParent()!=null) showLibrary();
+        else super.onBackPressed();
+    }
+    @Override protected void onDestroy() {
+        openVersion++;requestVersion++;
+        io.execute(this::closeOpenedDocuments);
+        io.shutdown();
+        super.onDestroy();
+    }
+}
