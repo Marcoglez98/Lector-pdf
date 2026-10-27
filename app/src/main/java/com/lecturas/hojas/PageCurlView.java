@@ -11,6 +11,8 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import java.util.ArrayList;
+import java.util.List;
 import android.graphics.Shader;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -26,6 +28,7 @@ public class PageCurlView extends View {
     public interface Listener {
         void onPageRequested(boolean next);
         void onSelectionHint();
+        void onMarkup(float x0,float y0,float x1,float y1,boolean erase);
     }
 
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -47,6 +50,19 @@ public class PageCurlView extends View {
     private int canvasColor = Color.rgb(234, 225, 211);
     private int paperColor = Color.WHITE;
     private ValueAnimator currentAnimator;
+    public static final class Ink {
+        public final List<RectF> rects;
+        public final int color;
+        public Ink(List<RectF> rects,int color){this.rects=rects;this.color=color;}
+    }
+    private final List<Ink> marks=new ArrayList<>();
+    private final Paint inkPaint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint gesturePaint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private List<RectF> animationRects;
+    private float inkProgress=1f, markEndX,markEndY;
+    private boolean inkEraser, strokeStarted;
+    private int inkColor=0xFFFFE69A, annotationTool=0;
+    private ValueAnimator inkAnimator;
 
     public PageCurlView(Context context) {
         super(context);
@@ -67,6 +83,33 @@ public class PageCurlView extends View {
     }
 
     public void setListener(Listener listener) { this.listener = listener; }
+    public void setAnnotationTool(int tool) {
+        annotationTool=Math.max(0,Math.min(2,tool));
+        strokeStarted=false;invalidate();
+    }
+    public int getAnnotationTool(){return annotationTool;}
+    public void setMarks(List<Ink> values) {
+        marks.clear();
+        if(values!=null)marks.addAll(values);
+        invalidate();
+    }
+    public void animateInk(List<RectF> rects,int color,boolean eraser,Runnable done) {
+        if(inkAnimator!=null)inkAnimator.cancel();
+        animationRects=new ArrayList<>(rects);inkColor=color;inkEraser=eraser;inkProgress=0;
+        ValueAnimator a=ValueAnimator.ofFloat(0f,1f);
+        inkAnimator=a;a.setDuration(480);
+        a.setInterpolator(new DecelerateInterpolator());
+        a.addUpdateListener(v->{inkProgress=(float)v.getAnimatedValue();invalidate();});
+        a.addListener(new android.animation.AnimatorListenerAdapter(){
+            boolean cancelled=false;
+            @Override public void onAnimationCancel(android.animation.Animator animator){cancelled=true;}
+            @Override public void onAnimationEnd(android.animation.Animator animator){
+                animationRects=null;invalidate();
+                if(!cancelled&&done!=null)done.run();
+            }
+        });
+        a.start();
+    }
     public void setPaperColor(int canvasBackground, int pageBackground) {
         canvasColor = canvasBackground;
         paperColor = pageBackground;
@@ -209,7 +252,39 @@ public class PageCurlView extends View {
             canvas.drawRect(edge-shadowW,0,edge+shadowW,getHeight(),effectPaint);
             effectPaint.setShader(null);
         }
+        if(!turning && opening>=0.99f) drawAnnotations(canvas,rect);
         canvas.restore();
+    }
+
+    private void drawAnnotations(Canvas canvas, RectF pageRect) {
+        canvas.save();
+        canvas.clipRect(pageRect);
+        for(Ink mark:marks) drawInkRects(canvas,pageRect,mark.rects,mark.color,1f,false);
+        if(animationRects!=null)drawInkRects(canvas,pageRect,animationRects,inkColor,inkProgress,inkEraser);
+        if(strokeStarted && annotationTool!=0) {
+            gesturePaint.setColor(annotationTool==2?0xFFBDB5AA:0xCCB99334);
+            gesturePaint.setStyle(Paint.Style.STROKE);
+            gesturePaint.setStrokeWidth(dp(7));
+            gesturePaint.setStrokeCap(Paint.Cap.ROUND);
+            canvas.drawLine(downX,downY,markEndX,markEndY,gesturePaint);
+            gesturePaint.setStyle(Paint.Style.FILL);
+        }
+        canvas.restore();
+    }
+    private void drawInkRects(Canvas canvas,RectF pageRect,List<RectF> rects,int color,float progress,boolean erase) {
+        inkPaint.setColor(erase ? paperColor : ((color & 0x00FFFFFF) | 0x92000000));
+        for(RectF r:rects) {
+            float left=pageRect.left+r.left*pageRect.width();
+            float right=pageRect.left+r.right*pageRect.width();
+            float top=pageRect.top+r.top*pageRect.height();
+            float bottom=pageRect.top+r.bottom*pageRect.height();
+            float lineHeight=Math.max(dp(5),bottom-top);
+            // Franja irregular como la punta de un subrayador real.
+            top+=lineHeight*0.17f;
+            bottom+=lineHeight*0.09f;
+            right=left+(right-left)*Math.min(1f,Math.max(0f,progress));
+            canvas.drawRoundRect(left-dp(1),top,right+dp(2),bottom,dp(2),dp(2),inkPaint);
+        }
     }
 
     private void drawSheet(Canvas canvas, Bitmap bitmap, RectF rect) {
@@ -221,9 +296,31 @@ public class PageCurlView extends View {
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
+        if (turning || page == null) return true;
+        if(annotationTool!=0){
+            switch(event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX=markEndX=event.getX();downY=markEndY=event.getY();
+                    strokeStarted=true;invalidate();return true;
+                case MotionEvent.ACTION_MOVE:
+                    markEndX=event.getX();markEndY=event.getY();invalidate();return true;
+                case MotionEvent.ACTION_UP:
+                    markEndX=event.getX();markEndY=event.getY();strokeStarted=false;
+                    RectF pageRect=getPageRect();
+                    float x0=(downX-pageRect.left)/pageRect.width();
+                    float y0=(downY-pageRect.top)/pageRect.height();
+                    float x1=(markEndX-pageRect.left)/pageRect.width();
+                    float y1=(markEndY-pageRect.top)/pageRect.height();
+                    if(listener!=null && x0>=0 && x0<=1 && y0>=0 && y0<=1)
+                        listener.onMarkup(x0,y0,Math.max(0,Math.min(1,x1)),
+                            Math.max(0,Math.min(1,y1)),annotationTool==2);
+                    invalidate();return true;
+                case MotionEvent.ACTION_CANCEL: strokeStarted=false;invalidate();return true;
+                default:return true;
+            }
+        }
         scaleDetector.onTouchEvent(event);
         gestureDetector.onTouchEvent(event);
-        if (turning || page == null) return true;
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = lastX = event.getX();
