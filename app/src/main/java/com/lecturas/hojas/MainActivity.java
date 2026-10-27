@@ -9,6 +9,10 @@ import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.RectF;
+import android.speech.tts.Voice;
+import java.util.List;
+import java.util.ArrayList;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.pdf.PdfRenderer;
@@ -89,6 +93,13 @@ public class MainActivity extends Activity {
     private float fontSizeSp = 21f;
     private boolean nightMode = false;
     private boolean animatedPages = true;
+    private NarrationHelper narrator;
+    private TextView narrationButton;
+    private LinearLayout bookTools;
+    private TextView markerButton, eraserButton;
+    private int annotationMode=0;
+    private PdfTextGeometry.Page currentGeometry;
+    private int geometryPage=-1;
 
     private LinearLayout readerLayout;
     private FrameLayout readingSurface;
@@ -112,6 +123,24 @@ public class MainActivity extends Activity {
         PDFBoxResourceLoader.init(getApplicationContext());
         screen = new FrameLayout(this);
         setContentView(screen);
+        narrator=new NarrationHelper(this,prefs,new NarrationHelper.Host(){
+            @Override public void requestText(int page,java.util.function.Consumer<String> callback){
+                final int opening=openVersion;
+                io.execute(()->{
+                    String body="";
+                    try{body=extractText(page);}catch(Exception ignored){}
+                    final String ready=body;
+                    runOnUiThread(()->{
+                        if(opening==openVersion && !isFinishing())callback.accept(ready);
+                    });
+                });
+            }
+            @Override public void showReadingPage(int page){
+                if(page!=currentPage && !busy && renderer!=null)loadPageAt(page,animatedPages,page>currentPage);
+            }
+            @Override public void stateChanged(){updateNarrationButton();}
+            @Override public void notice(String message){toast(message);}
+        });
         showLibrary();
         if (state!=null && state.getString("openedUri")!=null) {
             openPdf(Uri.parse(state.getString("openedUri")));
@@ -178,6 +207,7 @@ public class MainActivity extends Activity {
     }
 
     private void showLibrary() {
+        if(narrator!=null)narrator.stop();
         requestVersion++;
         setSystemBars(false);
         screen.removeAllViews();
@@ -258,6 +288,8 @@ public class MainActivity extends Activity {
         } catch (Exception e) { return Integer.toHexString(str.hashCode()); }
     }
     private void openPdf(Uri uri) {
+        if(narrator!=null)narrator.stop();
+        annotationMode=0;currentGeometry=null;geometryPage=-1;
         final int version=++openVersion;
         requestVersion++;
         busy=true;
@@ -337,6 +369,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams nameParams=new LinearLayout.LayoutParams(0,-2,1); nameParams.leftMargin=dp(7);toolbar.addView(readingTitle,nameParams);
         TextView fav=clickable("☆",25,ACCENT,Color.TRANSPARENT,this::showFavorites);
         fav.setContentDescription("Abrir frases favoritas");toolbar.addView(fav);
+        TextView voice=clickable("🎙",22,nightMode?WHITE:INK,Color.TRANSPARENT,this::showVoiceDialog);
+        voice.setContentDescription("Voces y descarga para narración");
+        toolbar.addView(voice);
         TextView settings=clickable("⚙",22,nightMode?WHITE:INK,Color.TRANSPARENT,this::showSettings);
         settings.setContentDescription("Preferencias de lectura");toolbar.addView(settings);
         readerLayout.addView(toolbar);
@@ -349,6 +384,14 @@ public class MainActivity extends Activity {
         modes.addView(modeTextButton,new LinearLayout.LayoutParams(0,dp(44),1.4f));
         readerLayout.addView(modes);
 
+        bookTools=horizontal();
+        bookTools.setPadding(dp(19),0,dp(19),dp(8));
+        markerButton=clickable("✎  Marcador",14,ACCENT,WHITE,()->setAnnotationMode(annotationMode==1?0:1));
+        eraserButton=clickable("⌫  Borrador",14,ACCENT,WHITE,()->setAnnotationMode(annotationMode==2?0:2));
+        LinearLayout.LayoutParams markerParams=new LinearLayout.LayoutParams(0,dp(41),1);
+        markerParams.rightMargin=dp(10);bookTools.addView(markerButton,markerParams);
+        bookTools.addView(eraserButton,new LinearLayout.LayoutParams(0,dp(41),1));
+        readerLayout.addView(bookTools);
         readingSurface=new FrameLayout(this);
         LinearLayout.LayoutParams center=new LinearLayout.LayoutParams(-1,0,1);
         readerLayout.addView(readingSurface,center);
@@ -356,11 +399,11 @@ public class MainActivity extends Activity {
         curlView.setListener(new PageCurlView.Listener() {
             @Override public void onPageRequested(boolean next) { navigate(next); }
             @Override public void onSelectionHint() {
-                new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Seleccionar una frase")
-                    .setMessage("Cambia al modo Texto ajustable. Allí podrás seleccionar palabras, resaltar frases y guardarlas en Favoritos.")
-                    .setPositiveButton("Ir al modo Texto",(d,w)->switchMode(true))
-                    .setNegativeButton("Cancelar",null).show();
+                toast("Toca el Marcador para subrayar directamente en el libro.");
+            }
+            @Override public void onMarkup(float x0,float y0,float x1,float y1,boolean eraser){
+                if(eraser)eraseBookMark(x1,y1);
+                else highlightBook(x0,y0,x1,y1);
             }
         });
         curlView.setPaperColor(nightMode?0xFF20232B:0xFFE9DECC,Color.WHITE);
@@ -407,6 +450,8 @@ public class MainActivity extends Activity {
         TextView larger=clickable("A+",16,nightMode?WHITE:INK,Color.TRANSPARENT,()->changeSize(+1));
         TextView previous=clickable("‹",29,nightMode?WHITE:INK,Color.TRANSPARENT,()->navigate(false));
         TextView following=clickable("›",29,nightMode?WHITE:INK,Color.TRANSPARENT,()->navigate(true));
+        narrationButton=clickable("▶ Leer",15,Color.WHITE,ACCENT,this::toggleNarration);
+        controls.addView(narrationButton);
         controls.addView(smaller);controls.addView(larger);
         pageSeek=new SeekBar(this);pageSeek.setMax(Math.max(0,totalPages-1));
         pageSeek.setProgressTintList(ColorStateList.valueOf(ACCENT));
@@ -429,11 +474,14 @@ public class MainActivity extends Activity {
         pageCounter.setGravity(Gravity.CENTER);
         pageCounter.setPadding(0,0,0,dp(12));
         readerLayout.addView(pageCounter);
-        updateModeUI();updatePageUI();setLoading(false);
+        updateModeUI();updatePageUI();setLoading(false);updateNarrationButton();
     }
 
     private void updateModeUI() {
         if (curlView==null) return;
+        if(bookTools!=null)bookTools.setVisibility(textMode?View.GONE:View.VISIBLE);
+        curlView.setAnnotationTool(textMode?0:annotationMode);
+        updateAnnotationButtons();
         curlView.setVisibility(textMode?View.GONE:View.VISIBLE);
         textScroll.setVisibility(textMode?View.VISIBLE:View.GONE);
         modeBookButton.setBackground(bg(textMode?(nightMode?0xFF353943:WHITE):ACCENT,13,Color.TRANSPARENT));
@@ -444,7 +492,7 @@ public class MainActivity extends Activity {
     }
     private void updatePageUI() {
         if (pageCounter!=null) pageCounter.setText("PÁGINA "+(currentPage+1)+" DE "+totalPages+"     ·     " +
-                (textMode?"MANTÉN PULSADO PARA RESALTAR":"DESLIZA PARA PASAR HOJA"));
+                (textMode?"MANTÉN PULSADO PARA RESALTAR":annotationMode==1?"ARRASTRA PARA SUBRAYAR":annotationMode==2?"TOCA LA MARCA PARA BORRAR":"DESLIZA PARA PASAR HOJA"));
         if (pageSeek!=null) pageSeek.setProgress(currentPage);
     }
     private void setLoading(boolean isLoading) {
@@ -469,6 +517,7 @@ public class MainActivity extends Activity {
     }
     private void navigate(boolean next) {
         if (busy) return;
+        if(narrator!=null)narrator.onManualPageChange();
         int target=currentPage+(next?1:-1);
         if (target<0 || target>=totalPages) {
             toast(next?"Llegaste al final del libro":"Estás en la primera página");
@@ -494,11 +543,19 @@ public class MainActivity extends Activity {
                     });
                 } else {
                     Bitmap bitmap=renderBitmap(index);
+                    PdfTextGeometry.Page geometry=new PdfTextGeometry.Page();
+                    try{
+                        if(pdfTextDocument==null && currentCachedFile!=null)
+                            pdfTextDocument=PDDocument.load(currentCachedFile);
+                        if(pdfTextDocument!=null)geometry=PdfTextGeometry.extract(pdfTextDocument,index);
+                    }catch(Exception ignored){}
+                    final PdfTextGeometry.Page readyGeometry=geometry;
                     runOnUiThread(() -> {
                         if (loadRequest!=requestVersion || isFinishing()) { bitmap.recycle(); return; }
                         setLoading(false);
                         curlView.turnTo(bitmap,forward,withAnimation && animatedPages,() -> {
-                            currentPage=index;updatePageUI();rememberPosition();busy=false;
+                            currentPage=index;currentGeometry=readyGeometry;geometryPage=index;
+                            refreshBookMarks();updatePageUI();rememberPosition();busy=false;
                             if (pendingOpenAnimation) {
                                 pendingOpenAnimation=false;
                                 curlView.openBook();
@@ -646,9 +703,10 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams row=new LinearLayout.LayoutParams(-1,-2);row.topMargin=dp(9);card.addView(lower,row);
             card.setOnClickListener(v->{
                 dialog.dismiss();pendingScrollOffset=item.optInt("start",0);
-                if (textMode) loadPageAt(page,false,true);
+                if(!textMode && item.optJSONArray("rects")!=null)loadPageAt(page,false,true);
                 else {
-                    textMode=true;updateModeUI();updatePageUI();loadPageAt(page,false,true);
+                    if(!textMode){textMode=true;updateModeUI();updatePageUI();}
+                    loadPageAt(page,false,true);
                 }
             });
             LinearLayout.LayoutParams margins=new LinearLayout.LayoutParams(-1,-2);
@@ -661,6 +719,7 @@ public class MainActivity extends Activity {
         for (int i=0;i<old.length();i++) if (i!=index) updated.put(old.opt(i));
         prefs.edit().putString("marks_"+bookKey,updated.toString()).apply();
         if (textMode) showPageText(textView.getText().toString());
+        else refreshBookMarks();
     }
     private void shareQuote(String quote,int page) {
         Intent send=new Intent(Intent.ACTION_SEND);
@@ -694,6 +753,7 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
     @Override protected void onDestroy() {
+        if(narrator!=null)narrator.close();
         openVersion++;requestVersion++;
         io.execute(this::closeOpenedDocuments);
         io.shutdown();
