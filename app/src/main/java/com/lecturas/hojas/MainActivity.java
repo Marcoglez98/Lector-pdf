@@ -381,6 +381,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams nameParams=new LinearLayout.LayoutParams(0,-2,1); nameParams.leftMargin=dp(7);toolbar.addView(readingTitle,nameParams);
         TextView fav=clickable("☆",25,ACCENT,Color.TRANSPARENT,this::showFavorites);
         fav.setContentDescription("Abrir frases favoritas");toolbar.addView(fav);
+        TextView immersion=clickable("⛶",22,nightMode?WHITE:INK,Color.TRANSPARENT,()->setReadingFullscreen(true));
+        immersion.setContentDescription("Leer a pantalla completa; doble toque para mostrar las herramientas");
+        toolbar.addView(immersion);
         TextView voice=clickable("🎙",22,nightMode?WHITE:INK,Color.TRANSPARENT,this::showVoiceDialog);
         voice.setContentDescription("Voces y descarga para narración");
         toolbar.addView(voice);
@@ -936,6 +939,232 @@ public class MainActivity extends Activity {
             .setPositiveButton("Listo",null).show();
     }
 
+
+    // MODO LECTURA: un toque oculta los controles, dos toques los restauran.
+    private void handleReaderTap(boolean doubleTap){
+        if(doubleTap){
+            if(readingFullscreen)setReadingFullscreen(false);
+        } else if(!readingFullscreen && annotationMode==0) {
+            setReadingFullscreen(true);
+        }
+    }
+    private void setReadingFullscreen(boolean enabled){
+        if(readerLayout==null||readerLayout.getParent()==null)return;
+        if(readingFullscreen==enabled)return;
+        readingFullscreen=enabled;
+        if(enabled && annotationMode!=0){
+            annotationMode=0;
+            if(curlView!=null)curlView.setAnnotationTool(0);
+            updateAnnotationButtons();
+        }
+        int visibility=enabled?View.GONE:View.VISIBLE;
+        if(readerToolbar!=null)readerToolbar.setVisibility(visibility);
+        if(readerBorder!=null)readerBorder.setVisibility(visibility);
+        if(readerModes!=null)readerModes.setVisibility(visibility);
+        if(readerControls!=null)readerControls.setVisibility(visibility);
+        if(pageCounter!=null)pageCounter.setVisibility(visibility);
+        if(ribbonShelf!=null)ribbonShelf.setVisibility(visibility);
+        if(bookTools!=null)bookTools.setVisibility(enabled||textMode?View.GONE:View.VISIBLE);
+        if(textView!=null) {
+            textView.setPadding(dp(enabled?15:23),dp(enabled?12:27),
+                dp(enabled?15:23),dp(enabled?18:36));
+        }
+        if(curlView!=null)curlView.setFullPage(enabled);
+        refreshRibbonViews();
+        if(enabled){
+            getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }else setSystemBars(nightMode);
+    }
+
+    private JSONArray readRibbons() {
+        try{return new JSONArray(prefs.getString("ribbons_"+bookKey,"[]"));}
+        catch(Exception e){return new JSONArray();}
+    }
+    private void writeRibbons(JSONArray items) {
+        prefs.edit().putString("ribbons_"+bookKey,items.toString()).apply();
+        refreshRibbonViews();
+    }
+    private void createRibbonShelf() {
+        ribbonShelf=horizontal();
+        ribbonShelf.setPadding(dp(12),dp(2),dp(8),dp(3));
+        ribbonShelf.setBackgroundColor(nightMode?0xFF303138:0xFFF1E5D6);
+        TextView add=clickable("＋ Cinta",13,Color.WHITE,0xFF8F1C32,this::offerRibbon);
+        add.setContentDescription("Colocar una cinta roja en esta página");
+        ribbonShelf.addView(add,new LinearLayout.LayoutParams(dp(91),dp(45)));
+        HorizontalScrollView shelfScroll=new HorizontalScrollView(this);
+        shelfScroll.setHorizontalScrollBarEnabled(false);
+        ribbonSlots=horizontal();
+        ribbonSlots.setPadding(dp(9),0,dp(5),0);
+        shelfScroll.addView(ribbonSlots,new ScrollView.LayoutParams(-2,-2));
+        LinearLayout.LayoutParams shelfArea=new LinearLayout.LayoutParams(0,dp(59),1);
+        ribbonShelf.addView(shelfScroll,shelfArea);
+        readerLayout.addView(ribbonShelf);
+    }
+    private void refreshRibbonViews() {
+        if(ribbonSlots==null||pageRibbon==null||bookKey.isEmpty())return;
+        JSONArray saved=readRibbons();
+        ribbonSlots.removeAllViews();
+        JSONObject top=null;
+        for(int i=0;i<saved.length();i++) {
+            final JSONObject item=saved.optJSONObject(i);
+            if(item==null)continue;
+            int page=item.optInt("page",0);
+            if(page==currentPage)top=item;
+            String note=item.optString("note","");
+            RibbonTabView tab=new RibbonTabView(this,"Pág. "+(page+1),false,page==currentPage);
+            tab.setContentDescription("Cinta roja. Página "+(page+1)+". "+note+
+                ". Toca para ir o mantén pulsado para editar o retirar.");
+            tab.setOnClickListener(v->openRibbon(item));
+            tab.setOnLongClickListener(v->{showRibbonActions(item);return true;});
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(93),dp(58));
+            p.rightMargin=dp(3);
+            ribbonSlots.addView(tab,p);
+        }
+        if(saved.length()==0){
+            TextView hint=label("Tus cintas aparecerán aquí",12,
+                nightMode?0xFFD2A6A7:MUTED,false);
+            ribbonSlots.addView(hint);
+        }
+        pageRibbon.setVisibility(top!=null&&!readingFullscreen?View.VISIBLE:View.GONE);
+        if(top!=null){
+            final JSONObject selected=top;
+            pageRibbon.setCaption("P. "+(currentPage+1));
+            pageRibbon.setOnClickListener(v->showRibbonActions(selected));
+        }
+    }
+    private void offerRibbon() {
+        if(busy || totalPages<1)return;
+        new AlertDialog.Builder(this)
+            .setTitle("Cinta roja · Página "+(currentPage+1))
+            .setItems(new String[]{"Colocar cinta aquí",
+                "Colocar cinta con una nota",
+                "Marcar una frase que ya subrayé"},(dialog,which)->{
+                if(which==0)saveRibbon(currentPage,"Retomar lectura aquí","",-1);
+                else if(which==1)askRibbonNote(null);
+                else chooseHighlightedQuote();
+            }).show();
+    }
+    private void chooseHighlightedQuote() {
+        JSONArray marks=readMarks();
+        ArrayList<JSONObject> matching=new ArrayList<>();
+        ArrayList<String> names=new ArrayList<>();
+        for(int i=0;i<marks.length();i++){
+            JSONObject item=marks.optJSONObject(i);
+            if(item!=null&&item.optInt("page",-1)==currentPage){
+                String quote=item.optString("quote","").trim();
+                if(!quote.isEmpty()){
+                    matching.add(item);
+                    names.add(quote.length()>100?quote.substring(0,100)+"…":quote);
+                }
+            }
+        }
+        if(matching.isEmpty()){
+            toast("Primero subraya una frase en esta página.");return;
+        }
+        new AlertDialog.Builder(this).setTitle("Vincular cinta a una frase")
+            .setItems(names.toArray(new String[0]),(d,index)->{
+                JSONObject item=matching.get(index);
+                String quote=item.optString("quote","");
+                saveRibbon(currentPage,quote.length()>65?quote.substring(0,65)+"…":quote,
+                    quote,item.optInt("start",-1));
+            }).setNegativeButton("Cancelar",null).show();
+    }
+    private void askRibbonNote(JSONObject existing) {
+        EditText edit=new EditText(this);
+        edit.setSingleLine(false);
+        edit.setMinLines(2);
+        edit.setMaxLines(4);
+        edit.setTextSize(16);
+        edit.setHint("Ej.: Volver a leer esta explicación…");
+        edit.setPadding(dp(17),dp(14),dp(17),dp(14));
+        if(existing!=null)edit.setText(existing.optString("note",""));
+        new AlertDialog.Builder(this)
+            .setTitle(existing==null?"Nueva cinta roja · Página "+(currentPage+1):"Editar nota de la cinta")
+            .setView(edit)
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Guardar cinta",(d,w)->{
+                String note=edit.getText().toString().trim();
+                if(note.isEmpty())note="Retomar lectura aquí";
+                if(existing==null)saveRibbon(currentPage,note,"",-1);
+                else changeRibbonNote(existing.optString("id",""),note);
+            }).show();
+    }
+    private void saveRibbon(int page,String note,String quote,int offset) {
+        JSONArray all=readRibbons();
+        if(all.length()>=100){toast("Puedes guardar hasta 100 cintas por libro.");return;}
+        JSONObject item=new JSONObject();
+        try{
+            item.put("id",String.valueOf(System.nanoTime()));
+            item.put("page",page);
+            item.put("note",note);
+            item.put("quote",quote);
+            item.put("offset",offset);
+            item.put("createdAt",System.currentTimeMillis());
+            all.put(item);
+            writeRibbons(all);
+            toast("Cinta roja colocada en la página "+(page+1));
+        }catch(Exception ex){toast("No se pudo guardar la cinta.");}
+    }
+    private void changeRibbonNote(String id,String note) {
+        JSONArray all=readRibbons();
+        for(int i=0;i<all.length();i++){
+            JSONObject item=all.optJSONObject(i);
+            if(item!=null && id.equals(item.optString("id"))){
+                try{item.put("note",note);}catch(Exception ignored){}
+                writeRibbons(all);return;
+            }
+        }
+    }
+    private void removeRibbon(String id) {
+        JSONArray old=readRibbons(),updated=new JSONArray();
+        for(int i=0;i<old.length();i++){
+            JSONObject item=old.optJSONObject(i);
+            if(item!=null&&!id.equals(item.optString("id")))updated.put(item);
+        }
+        writeRibbons(updated);
+        toast("Cinta retirada del libro");
+    }
+    private void showCurrentRibbon(){
+        JSONArray saved=readRibbons();
+        for(int i=saved.length()-1;i>=0;i--){
+            JSONObject item=saved.optJSONObject(i);
+            if(item!=null&&item.optInt("page",-1)==currentPage){
+                showRibbonActions(item);return;
+            }
+        }
+    }
+    private void showRibbonActions(JSONObject item){
+        final int page=item.optInt("page",0);
+        final String id=item.optString("id","");
+        final String note=item.optString("note","Retomar lectura aquí");
+        new AlertDialog.Builder(this).setTitle("🔖 Cinta · Página "+(page+1))
+            .setMessage(note)
+            .setItems(new String[]{"Ir a esa parte del libro","Editar nota","Retirar esta cinta"},(d,which)->{
+                if(which==0)openRibbon(item);
+                else if(which==1)askRibbonNote(item);
+                else new AlertDialog.Builder(this).setTitle("Retirar cinta roja")
+                    .setMessage("¿Quitar esta cinta de la página "+(page+1)+"?")
+                    .setPositiveButton("Retirar",(a,b)->removeRibbon(id))
+                    .setNegativeButton("Cancelar",null).show();
+            }).setNegativeButton("Cerrar",null).show();
+    }
+    private void openRibbon(JSONObject item) {
+        if(busy)return;
+        int page=item.optInt("page",0);
+        String note=item.optString("note","");
+        int offset=item.optInt("offset",-1);
+        if(offset<0 && !item.optString("quote","").isEmpty() && textMode
+            && page==currentPage)offset=textView.getText().toString().indexOf(item.optString("quote"));
+        if(textMode&&offset>=0)pendingScrollOffset=offset;
+        if(narrator!=null)narrator.onManualPageChange();
+        if(page!=currentPage)loadPageAt(page,animatedPages,page>currentPage);
+        else if(textMode && pendingScrollOffset>=0)showPageText(textView.getText().toString());
+        toast("Cinta roja · Página "+(page+1)+(note.isEmpty()?"":" · "+note));
+    }
+
     private void showSettings() {
         String anim=animatedPages?"activada":"desactivada";
         new AlertDialog.Builder(this).setTitle("Preferencias de lectura")
@@ -958,8 +1187,10 @@ public class MainActivity extends Activity {
     }
     private void toast(String s) { Toast.makeText(this,s,Toast.LENGTH_SHORT).show(); }
     @Override public void onBackPressed() {
-        if (readerLayout!=null && readerLayout.getParent()!=null) showLibrary();
-        else super.onBackPressed();
+        if (readerLayout!=null && readerLayout.getParent()!=null){
+            if(readingFullscreen)setReadingFullscreen(false);
+            else showLibrary();
+        } else super.onBackPressed();
     }
     @Override protected void onDestroy() {
         if(narrator!=null)narrator.close();
