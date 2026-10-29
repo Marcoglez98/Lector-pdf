@@ -28,3 +28,17 @@ Los favoritos se guardan en la aplicación, no modifican el PDF original. Los PD
 - Activa **Borrador** y toca una marca para retirarla con animación; se elimina también de Favoritos.
 - La detección de palabras en PDF escaneados sin texto, documentos rotados o con diseño complejo puede ser limitada.
 - Atención: el APK de depuración compilado en distintos ejecutores de GitHub puede usar certificados de firma diferentes. Si Android rechaza instalarlo como actualización, conserva una copia de tus favoritos antes de desinstalar la versión anterior.
+
+## Novedades Hojas 1.2 — lectura inmersiva y cintas rojas
+- **Pantalla completa**: toca una vez sobre el área de lectura para ocultar las barras y aprovechar toda la pantalla; da **dos toques** para recuperarlas. También puedes entrar con el botón ⛶ superior. El botón Atrás muestra los controles antes de salir del libro.
+- **Cintas rojas**: pulsa «＋ Cinta» debajo de las opciones para guardar la página actual, escribir una nota o vincular una frase ya resaltada.
+- Las cintas se dibujan como pequeñas tiras de tela color vino, con punta en V, sombra y costuras decorativas. Puedes verlas en la bandeja inferior y, si una página tiene cintas, en su margen superior.
+- Toca una cinta de la bandeja para regresar a la página. Mantén pulsado el marcador para editar su nota o retirarlo. Las cintas se almacenan **por PDF** en el teléfono.
+- La pantalla completa mantiene la navegación entre páginas. El modo marcador/borrador toma prioridad sobre los gestos para no modificar accidentalmente una frase; usa ⛶ para entrar directamente en lectura inmersiva.
+
+## APK
+El workflow de GitHub Actions genera dos variantes:
+- **Hojas-1.1-Actualizacion** (identificador original, APK principal, ahora con versión 1.2.0).
+- **Hojas-1.1-Narrador-Prueba** (APK de prueba independiente que puedes instalar junto a tu Hojas anterior).
+
+La firma de las APK de depuración puede variar entre ejecuciones. Antes de eliminar versiones anteriores, conserva tus datos; un APK con firma diferente no se instala como actualización directa.
