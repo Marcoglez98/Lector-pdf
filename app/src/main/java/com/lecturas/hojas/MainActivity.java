@@ -27,6 +27,10 @@ import android.text.TextUtils;
 import android.text.style.BackgroundColorSpan;
 import android.view.ActionMode;
 import android.view.Gravity;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
+import android.widget.EditText;
+import android.widget.HorizontalScrollView;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -112,6 +116,11 @@ public class MainActivity extends Activity {
     private TextView readingTitle;
     private SeekBar pageSeek;
     private ProgressBar pageLoading;
+    private boolean readingFullscreen=false;
+    private LinearLayout readerToolbar, readerModes, readerControls, ribbonShelf, ribbonSlots;
+    private View readerBorder;
+    private RibbonTabView pageRibbon;
+    private GestureDetector textTapDetector;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -209,6 +218,7 @@ public class MainActivity extends Activity {
     private void showLibrary() {
         if(narrator!=null)narrator.stop();
         requestVersion++;
+        readingFullscreen=false;
         setSystemBars(false);
         screen.removeAllViews();
         ScrollView sc = new ScrollView(this);
@@ -355,12 +365,14 @@ public class MainActivity extends Activity {
     }
 
     private void showReader() {
+        readingFullscreen=false;
         pendingOpenAnimation=true;
         setSystemBars(nightMode);
         screen.removeAllViews();
         readerLayout=vertical();readerLayout.setBackgroundColor(nightMode ? DARK : PAPER);
         screen.addView(readerLayout,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout toolbar=horizontal();
+        readerToolbar=toolbar;
         toolbar.setPadding(dp(12),dp(9),dp(12),dp(9));
         TextView back=clickable("‹",29,nightMode?WHITE:INK,Color.TRANSPARENT,this::showLibrary);
         toolbar.addView(back,new LinearLayout.LayoutParams(dp(46),dp(48)));
@@ -375,9 +387,9 @@ public class MainActivity extends Activity {
         TextView settings=clickable("⚙",22,nightMode?WHITE:INK,Color.TRANSPARENT,this::showSettings);
         settings.setContentDescription("Preferencias de lectura");toolbar.addView(settings);
         readerLayout.addView(toolbar);
-        View border=line();if(nightMode) border.setBackgroundColor(0xFF41434B);readerLayout.addView(border);
+        View border=line();readerBorder=border;if(nightMode) border.setBackgroundColor(0xFF41434B);readerLayout.addView(border);
 
-        LinearLayout modes=horizontal();modes.setPadding(dp(18),dp(11),dp(18),dp(10));
+        LinearLayout modes=horizontal();readerModes=modes;modes.setPadding(dp(18),dp(11),dp(18),dp(10));
         modeBookButton=clickable("▣  Libro",14,INK,WHITE,()->switchMode(false));
         modeTextButton=clickable("☷  Texto ajustable",14,INK,WHITE,()->switchMode(true));
         LinearLayout.LayoutParams a=new LinearLayout.LayoutParams(0,dp(44),1);a.rightMargin=dp(10);modes.addView(modeBookButton,a);
@@ -404,6 +416,9 @@ public class MainActivity extends Activity {
             @Override public void onMarkup(float x0,float y0,float x1,float y1,boolean eraser){
                 if(eraser)eraseBookMark(x1,y1);
                 else highlightBook(x0,y0,x1,y1);
+            }
+            @Override public void onReaderTap(boolean doubleTap) {
+                handleReaderTap(doubleTap);
             }
         });
         curlView.setPaperColor(nightMode?0xFF20232B:0xFFE9DECC,Color.WHITE);
@@ -438,14 +453,33 @@ public class MainActivity extends Activity {
             }
             @Override public void onDestroyActionMode(ActionMode mode) { }
         });
+        textTapDetector=new GestureDetector(this,new GestureDetector.SimpleOnGestureListener(){
+            @Override public boolean onDown(MotionEvent e){return true;}
+            @Override public boolean onSingleTapConfirmed(MotionEvent e){
+                handleReaderTap(false);return false;
+            }
+            @Override public boolean onDoubleTap(MotionEvent e){
+                handleReaderTap(true);return true;
+            }
+        });
+        // No consumir los eventos: mantener selección de texto y desplazamiento nativos.
+        textView.setOnTouchListener((v,e)->{textTapDetector.onTouchEvent(e);return false;});
+        textScroll.setOnTouchListener((v,e)->{textTapDetector.onTouchEvent(e);return false;});
         textScroll.addView(textView,new ScrollView.LayoutParams(-1,-2));
         readingSurface.addView(textScroll,new FrameLayout.LayoutParams(-1,-1));
         pageLoading=new ProgressBar(this);
         pageLoading.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
         FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(dp(42),dp(42),Gravity.CENTER);
         readingSurface.addView(pageLoading,lp);
+        pageRibbon=new RibbonTabView(this,"",true,true);
+        FrameLayout.LayoutParams ribbonPosition=new FrameLayout.LayoutParams(dp(56),dp(87),
+            Gravity.TOP|Gravity.END);
+        ribbonPosition.setMargins(0,dp(2),dp(18),0);
+        readingSurface.addView(pageRibbon,ribbonPosition);
+        pageRibbon.setOnClickListener(v->showCurrentRibbon());
+        pageRibbon.setVisibility(View.GONE);
 
-        LinearLayout controls=horizontal();controls.setPadding(dp(12),dp(7),dp(12),dp(7));
+        LinearLayout controls=horizontal();readerControls=controls;controls.setPadding(dp(12),dp(7),dp(12),dp(7));
         TextView smaller=clickable("A−",16,nightMode?WHITE:INK,Color.TRANSPARENT,()->changeSize(-1));
         TextView larger=clickable("A+",16,nightMode?WHITE:INK,Color.TRANSPARENT,()->changeSize(+1));
         TextView previous=clickable("‹",29,nightMode?WHITE:INK,Color.TRANSPARENT,()->navigate(false));
@@ -470,16 +504,18 @@ public class MainActivity extends Activity {
         });
         controls.addView(previous);controls.addView(following);
         readerLayout.addView(controls);
+        createRibbonShelf();
         pageCounter=label("",12,nightMode?0xFFBABAC0:MUTED,false);
         pageCounter.setGravity(Gravity.CENTER);
         pageCounter.setPadding(0,0,0,dp(12));
         readerLayout.addView(pageCounter);
         updateModeUI();updatePageUI();setLoading(false);updateNarrationButton();
+        refreshRibbonViews();
     }
 
     private void updateModeUI() {
         if (curlView==null) return;
-        if(bookTools!=null)bookTools.setVisibility(textMode?View.GONE:View.VISIBLE);
+        if(bookTools!=null)bookTools.setVisibility(textMode||readingFullscreen?View.GONE:View.VISIBLE);
         curlView.setAnnotationTool(textMode?0:annotationMode);
         updateAnnotationButtons();
         curlView.setVisibility(textMode?View.GONE:View.VISIBLE);
@@ -489,6 +525,7 @@ public class MainActivity extends Activity {
         modeBookButton.setTextColor(textMode?(nightMode?WHITE:INK):Color.WHITE);
         modeTextButton.setTextColor(textMode?Color.WHITE:(nightMode?WHITE:INK));
         if (!textMode) curlView.setPaperColor(nightMode?0xFF20232B:0xFFE9DECC,Color.WHITE);
+        refreshRibbonViews();
     }
     private void updatePageUI() {
         if (pageCounter!=null) pageCounter.setText("PÁGINA "+(currentPage+1)+" DE "+totalPages+"     ·     " +
@@ -539,6 +576,7 @@ public class MainActivity extends Activity {
                         currentPage=index;
                         showPageText(text);
                         updatePageUI();rememberPosition();
+                        refreshRibbonViews();
                         busy=false;setLoading(false);
                     });
                 } else {
@@ -556,6 +594,7 @@ public class MainActivity extends Activity {
                         curlView.turnTo(bitmap,forward,withAnimation && animatedPages,() -> {
                             currentPage=index;currentGeometry=readyGeometry;geometryPage=index;
                             refreshBookMarks();updatePageUI();rememberPosition();busy=false;
+                            refreshRibbonViews();
                             if (pendingOpenAnimation) {
                                 pendingOpenAnimation=false;
                                 curlView.openBook();
