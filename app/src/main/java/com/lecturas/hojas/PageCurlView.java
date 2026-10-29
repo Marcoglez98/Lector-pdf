@@ -29,6 +29,7 @@ public class PageCurlView extends View {
         void onPageRequested(boolean next);
         void onSelectionHint();
         void onMarkup(float x0,float y0,float x1,float y1,boolean erase);
+        void onReaderTap(boolean doubleTap);
     }
 
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -45,6 +46,7 @@ public class PageCurlView extends View {
     private float opening = 1;
     private float zoom = 1f;
     private float panX = 0, panY = 0;
+    private boolean fullPage = false;
     private float downX, downY, lastX, lastY;
     private boolean moved;
     private int canvasColor = Color.rgb(234, 225, 211);
@@ -78,6 +80,14 @@ public class PageCurlView extends View {
                 if (listener != null) listener.onSelectionHint();
             }
             @Override public boolean onDown(MotionEvent e) { return true; }
+            @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                if(listener!=null && annotationTool==0)listener.onReaderTap(false);
+                return true;
+            }
+            @Override public boolean onDoubleTap(MotionEvent e) {
+                if(listener!=null && annotationTool==0)listener.onReaderTap(true);
+                return true;
+            }
         });
         setBackgroundColor(canvasColor);
     }
@@ -114,6 +124,10 @@ public class PageCurlView extends View {
         canvasColor = canvasBackground;
         paperColor = pageBackground;
         invalidate();
+    }
+    public void setFullPage(boolean value){
+        if(fullPage==value)return;
+        fullPage=value;panX=0;panY=0;invalidate();
     }
     public float getZoom() { return zoom; }
     public void setZoom(float newZoom) {
@@ -182,22 +196,27 @@ public class PageCurlView extends View {
 
     private RectF getPageRect() {
         if (page == null) return new RectF(0,0,getWidth(),getHeight());
-        float availableWidth = Math.max(1, getWidth() - dp(28));
-        float scale = availableWidth / page.getWidth() * zoom;
-        float w = page.getWidth() * scale;
-        float h = page.getHeight() * scale;
-        return new RectF((getWidth()-w)/2 + panX, dp(14) + panY,
-                (getWidth()+w)/2 + panX, dp(14)+h+panY);
+        float safeWidth=Math.max(1,getWidth()-dp(fullPage?4:28));
+        float safeHeight=Math.max(1,getHeight()-dp(fullPage?6:28));
+        float scale=fullPage
+            ? Math.min(safeWidth/page.getWidth(),safeHeight/page.getHeight())*zoom
+            : safeWidth/page.getWidth()*zoom;
+        float w=page.getWidth()*scale,h=page.getHeight()*scale;
+        float top=fullPage?(getHeight()-h)/2f:dp(14);
+        return new RectF((getWidth()-w)/2f+panX,top+panY,
+            (getWidth()+w)/2f+panX,top+h+panY);
     }
     private void clampPan() {
         if (page == null) return;
-        float originalWidth = Math.max(1, getWidth()-dp(28));
-        float contentWidth = originalWidth * zoom;
-        float maxX = Math.max(0, (contentWidth - getWidth()+dp(28))/2);
-        panX = Math.max(-maxX, Math.min(maxX, panX));
-        float contentHeight = page.getHeight() * contentWidth / page.getWidth();
-        float minY = Math.min(0, getHeight() - dp(28) - contentHeight);
-        panY = Math.max(minY, Math.min(0, panY));
+        RectF rect=getPageRect();
+        float maxX=Math.max(0,(rect.width()-getWidth())/2f);
+        float maxY=Math.max(0,(rect.height()-getHeight())/2f);
+        panX=Math.max(-maxX,Math.min(maxX,panX));
+        if(fullPage)panY=Math.max(-maxY,Math.min(maxY,panY));
+        else {
+            float minY=Math.min(0,getHeight()-dp(28)-rect.height());
+            panY=Math.max(minY,Math.min(0,panY));
+        }
     }
     private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
 
