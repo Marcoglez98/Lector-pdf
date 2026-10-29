@@ -19,9 +19,9 @@ android {
         }
         prueba {
             dimension 'distribucion'
-            applicationIdSuffix '.narrador'
+            applicationIdSuffix '.cintas'
             versionNameSuffix '-prueba'
-            manifestPlaceholders = [hojasName: 'Hojas Narrador']
+            manifestPlaceholders = [hojasName: 'Hojas Cintas · Prueba']
         }
     }
     compileOptions {
