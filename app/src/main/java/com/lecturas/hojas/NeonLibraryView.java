@@ -82,7 +82,6 @@ public class NeonLibraryView extends ScrollView {
     public NeonLibraryView(Activity activity,SharedPreferences prefs,String palette,Actions actions){
         super(activity);
         this.activity=activity;this.prefs=prefs;this.actions=actions;
-        this.palette=palette;
         choosePalette(palette);
         setFillViewport(true);
         setVerticalScrollBarEnabled(false);
