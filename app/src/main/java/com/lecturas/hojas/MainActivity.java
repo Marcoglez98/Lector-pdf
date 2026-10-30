@@ -1405,7 +1405,7 @@ public class MainActivity extends Activity {
                 String note=edit.getText().toString().trim();
                 if(note.isEmpty())note="Retomar lectura aquí";
                 if(existing==null)saveRibbon(currentPage,note,"",-1);
-                else changeRibbonNote(existing.optString("id",""),note);
+                else changeRibbonNote(existing,note);
             }).show();
     }
     private void saveRibbon(int page,String note,String quote,int offset) {
@@ -1425,75 +1425,119 @@ public class MainActivity extends Activity {
             toast("Cinta roja colocada en la página "+(page+1));
         }catch(Exception ex){toast("No se pudo guardar la cinta.");}
     }
-    private void changeRibbonNote(String id,String note) {
+    // Comparamos la identidad registrada; conservamos compatibilidad con
+    // cintas creadas por versiones antiguas que carecen del campo "id".
+    private boolean sameRibbon(JSONObject stored,JSONObject picked){
+        if(stored==null || picked==null)return false;
+        String a=stored.optString("id",""),b=picked.optString("id","");
+        if(!a.isEmpty() && !b.isEmpty())return a.equals(b);
+        return stored.toString().equals(picked.toString());
+    }
+    private void changeRibbonNote(JSONObject selected,String note) {
         JSONArray all=readRibbons();
         for(int i=0;i<all.length();i++){
             JSONObject item=all.optJSONObject(i);
-            if(item!=null && id.equals(item.optString("id"))){
+            if(sameRibbon(item,selected)){
                 try{item.put("note",note);}catch(Exception ignored){}
-                writeRibbons(all);return;
+                writeRibbons(all);
+                toast("Nota actualizada");
+                return;
             }
         }
+        toast("La cinta ya no está guardada.");
     }
-    private void removeRibbon(String id) {
+    private void removeRibbon(JSONObject selected){
         JSONArray old=readRibbons(),updated=new JSONArray();
+        boolean removed=false;
         for(int i=0;i<old.length();i++){
             JSONObject item=old.optJSONObject(i);
-            if(item!=null&&!id.equals(item.optString("id")))updated.put(item);
+            if(!removed && sameRibbon(item,selected)){
+                removed=true;
+                continue;
+            }
+            if(item!=null)updated.put(item);
+        }
+        if(!removed){
+            toast("No encontré esa cinta. Vuelve a abrir la lista.");
+            return;
+        }
+        if(ribbonMotion!=null)ribbonMotion.cancel();
+        if(pageRibbon!=null){
+            pageRibbon.animate().cancel();
+            pageRibbon.setScaleY(1f);
+            pageRibbon.setTranslationY(0f);
+            pageRibbon.setRotation(0f);
         }
         writeRibbons(updated);
-        toast("Cinta retirada del libro");
+        // Fuerza actualización inmediata de cinta en papel y estantería.
+        refreshRibbonViews();
+        toast("Cinta eliminada correctamente.");
+    }
+    private void confirmRemoveRibbon(JSONObject selected){
+        int page=selected.optInt("page",0)+1;
+        String note=selected.optString("note","");
+        new AlertDialog.Builder(this).setTitle("Retirar cinta de la página "+page)
+            .setMessage(note.isEmpty()?"¿Quieres quitar este separador?":
+                note+"\n\n¿Quieres quitar este separador?")
+            .setNegativeButton("Conservar",null)
+            .setPositiveButton("Quitar cinta",(d,w)->removeRibbon(selected))
+            .show();
     }
     private void removeCurrentRibbonPrompt(){
         JSONArray saved=readRibbons();
         ArrayList<JSONObject> targets=new ArrayList<>();
         ArrayList<String> labels=new ArrayList<>();
-        for(int i=0;i<saved.length();i++){
-            JSONObject item=saved.optJSONObject(i);
-            if(item!=null && item.optInt("page",-1)==currentPage){
+        // Muestra todas las cintas, incluso las de otras páginas.
+        // Primero las de la página actual para que sea fácil encontrarlas.
+        for(int pass=0;pass<2;pass++){
+            for(int i=0;i<saved.length();i++){
+                JSONObject item=saved.optJSONObject(i);
+                if(item==null)continue;
+                int page=item.optInt("page",0);
+                if((pass==0)!=(page==currentPage))continue;
+                String note=item.optString("note","Separador");
+                if(note.length()>55)note=note.substring(0,55)+"…";
+                labels.add((page==currentPage?"●  ":"   ")+
+                    "Pág. "+(page+1)+"  ·  "+note);
                 targets.add(item);
-                labels.add("Pág. "+(currentPage+1)+" · "+item.optString("note","Cinta"));
             }
         }
         if(targets.isEmpty()){
-            toast("No hay cintas en esta página. También puedes mantener pulsada una cinta de la bandeja.");
+            toast("Todavía no hay cintas guardadas en este libro.");
             return;
         }
         new AlertDialog.Builder(this)
-            .setTitle("Quitar cinta separadora")
-            .setItems(labels.toArray(new String[0]),(d,which)->{
-                JSONObject selected=targets.get(which);
-                new AlertDialog.Builder(this)
-                    .setTitle("¿Retirar esta cinta?")
-                    .setMessage(selected.optString("note","Cinta de la página "+(currentPage+1)))
-                    .setNegativeButton("Cancelar",null)
-                    .setPositiveButton("Quitar",(d2,w)->removeRibbon(selected.optString("id","")))
-                    .show();
-            }).setNegativeButton("Cancelar",null).show();
+            .setTitle("Quitar cinta · Elige un separador")
+            .setItems(labels.toArray(new String[0]),(d,which)->
+                confirmRemoveRibbon(targets.get(which)))
+            .setNegativeButton("Cancelar",null).show();
     }
     private void showCurrentRibbon(){
         JSONArray saved=readRibbons();
         for(int i=saved.length()-1;i>=0;i--){
             JSONObject item=saved.optJSONObject(i);
-            if(item!=null&&item.optInt("page",-1)==currentPage){
+            if(item!=null && item.optInt("page",-1)==currentPage){
                 showRibbonActions(item);return;
             }
         }
+        removeCurrentRibbonPrompt();
     }
     private void showRibbonActions(JSONObject item){
         final int page=item.optInt("page",0);
-        final String id=item.optString("id","");
-        final String note=item.optString("note","Retomar lectura aquí");
-        new AlertDialog.Builder(this).setTitle("🔖 Cinta · Página "+(page+1))
-            .setMessage(note)
-            .setItems(new String[]{"Ir a esa parte del libro","Editar nota","Retirar esta cinta"},(d,which)->{
+        final String note=item.optString("note","");
+        String title="🔖 Cinta · Página "+(page+1);
+        // No combinar setMessage con setItems: Android ocultaba las acciones.
+        String[] actions={"📖  Ir al separador",
+            "✎  Editar nota"+(note.isEmpty()?"":" · "+(note.length()>30?
+                note.substring(0,30)+"…":note)),
+            "✕  Quitar este separador"};
+        new AlertDialog.Builder(this).setTitle(title)
+            .setItems(actions,(d,which)->{
                 if(which==0)openRibbon(item);
                 else if(which==1)askRibbonNote(item);
-                else new AlertDialog.Builder(this).setTitle("Retirar cinta roja")
-                    .setMessage("¿Quitar esta cinta de la página "+(page+1)+"?")
-                    .setPositiveButton("Retirar",(a,b)->removeRibbon(id))
-                    .setNegativeButton("Cancelar",null).show();
-            }).setNegativeButton("Cerrar",null).show();
+                else confirmRemoveRibbon(item);
+            })
+            .setNegativeButton("Cerrar",null).show();
     }
 
     private void positionPageRibbon(){
