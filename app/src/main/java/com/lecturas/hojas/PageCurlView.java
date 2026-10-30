@@ -6,6 +6,8 @@ import android.graphics.Bitmap;
 import android.graphics.Camera;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.RadialGradient;
 import android.graphics.LinearGradient;
 import android.graphics.Matrix;
 import android.graphics.Paint;
@@ -47,6 +49,16 @@ public class PageCurlView extends View {
     private float zoom = 1f;
     private float panX = 0, panY = 0;
     private boolean fullPage = false;
+    private float fullscreenProgress = 0f;
+    private ValueAnimator layoutAnimator;
+    private boolean magnifierVisible=false;
+    private float magnifierAlpha=0f, magnifierX, magnifierY;
+    private ValueAnimator magnifierAnimator;
+    private final Paint magnifierPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+    private final Paint bookPaint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint bookStroke=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path magnifierCircle=new Path();
+    private boolean longHeld=false;
     private float downX, downY, lastX, lastY;
     private boolean moved;
     private int canvasColor = Color.rgb(234, 225, 211);
@@ -77,7 +89,11 @@ public class PageCurlView extends View {
         });
         gestureDetector = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
             @Override public void onLongPress(MotionEvent e) {
-                if (listener != null) listener.onSelectionHint();
+                if(page==null || turning) return;
+                RectF rect=getPageRect();
+                if(!rect.contains(e.getX(),e.getY()))return;
+                longHeld=true;
+                showMagnifier(e.getX(),e.getY(),true);
             }
             @Override public boolean onDown(MotionEvent e) { return true; }
             @Override public boolean onSingleTapConfirmed(MotionEvent e) {
@@ -126,8 +142,37 @@ public class PageCurlView extends View {
         invalidate();
     }
     public void setFullPage(boolean value){
-        if(fullPage==value)return;
-        fullPage=value;panX=0;panY=0;invalidate();
+        if(fullPage==value && layoutAnimator==null)return;
+        fullPage=value;
+        if(layoutAnimator!=null)layoutAnimator.cancel();
+        ValueAnimator animator=ValueAnimator.ofFloat(fullscreenProgress,value?1f:0f);
+        layoutAnimator=animator;
+        animator.setDuration(390);
+        animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        animator.addUpdateListener(a->{
+            fullscreenProgress=(float)a.getAnimatedValue();
+            invalidate();
+        });
+        animator.addListener(new android.animation.AnimatorListenerAdapter(){
+            @Override public void onAnimationEnd(android.animation.Animator animation){
+                if(layoutAnimator==animation)layoutAnimator=null;
+            }
+        });
+        animator.start();
+    }
+    private float blend(float a,float b,float p){return a+(b-a)*p;}
+    private int fadedColor(int color,int alpha){
+        return (color & 0x00FFFFFF)|((Math.max(0,Math.min(255,alpha)))<<24);
+    }
+    private void showMagnifier(float x,float y,boolean visible){
+        magnifierX=x;magnifierY=y;
+        magnifierVisible=visible;
+        if(magnifierAnimator!=null)magnifierAnimator.cancel();
+        ValueAnimator animation=ValueAnimator.ofFloat(magnifierAlpha,visible?1f:0f);
+        magnifierAnimator=animation;animation.setDuration(visible?210:160);
+        animation.setInterpolator(new DecelerateInterpolator(1.6f));
+        animation.addUpdateListener(a->{magnifierAlpha=(float)a.getAnimatedValue();invalidate();});
+        animation.start();
     }
     public float getZoom() { return zoom; }
     public void setZoom(float newZoom) {
@@ -195,38 +240,37 @@ public class PageCurlView extends View {
     }
 
     private RectF getPageRect() {
-        if (page == null) return new RectF(0,0,getWidth(),getHeight());
-        float safeWidth=Math.max(1,getWidth()-dp(fullPage?4:28));
-        float safeHeight=Math.max(1,getHeight()-dp(fullPage?6:28));
-        float scale=fullPage
-            ? Math.min(safeWidth/page.getWidth(),safeHeight/page.getHeight())*zoom
-            : safeWidth/page.getWidth()*zoom;
+        if(page==null)return new RectF(0,0,getWidth(),getHeight());
+        float maxBookW=Math.max(1f,getWidth()-dp(48));
+        float maxBookH=Math.max(1f,getHeight()-dp(38));
+        float maxCleanW=Math.max(1f,getWidth()-dp(2));
+        float maxCleanH=Math.max(1f,getHeight()-dp(4));
+        float bookScale=Math.min(maxBookW/page.getWidth(),maxBookH/page.getHeight());
+        float cleanScale=Math.min(maxCleanW/page.getWidth(),maxCleanH/page.getHeight());
+        float scale=blend(bookScale,cleanScale,fullscreenProgress)*zoom;
         float w=page.getWidth()*scale,h=page.getHeight()*scale;
-        float top=fullPage?(getHeight()-h)/2f:dp(14);
-        return new RectF((getWidth()-w)/2f+panX,top+panY,
-            (getWidth()+w)/2f+panX,top+h+panY);
+        float left=(getWidth()-w)/2f+panX,top=(getHeight()-h)/2f+panY;
+        return new RectF(left,top,left+w,top+h);
     }
-    private void clampPan() {
-        if (page == null) return;
-        RectF rect=getPageRect();
-        float maxX=Math.max(0,(rect.width()-getWidth())/2f);
-        float maxY=Math.max(0,(rect.height()-getHeight())/2f);
-        panX=Math.max(-maxX,Math.min(maxX,panX));
-        if(fullPage)panY=Math.max(-maxY,Math.min(maxY,panY));
-        else {
-            float minY=Math.min(0,getHeight()-dp(28)-rect.height());
-            panY=Math.max(minY,Math.min(0,panY));
-        }
+    private void clampPan(){
+        if(page==null)return;
+        RectF r=getPageRect();
+        float x=Math.max(0,(r.width()-getWidth())/2f);
+        float y=Math.max(0,(r.height()-getHeight())/2f);
+        panX=Math.max(-x,Math.min(x,panX));
+        panY=Math.max(-y,Math.min(y,panY));
     }
     private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        canvas.drawColor(canvasColor);
+        int background=fullscreenProgress>0.98f?paperColor:canvasColor;
+        canvas.drawColor(background);
         if (page == null) return;
         RectF rect = getPageRect();
         canvas.save();
         canvas.clipRect(0,0,getWidth(),getHeight());
+        if(fullscreenProgress<0.99f) drawBookBackdrop(canvas,rect,1f-fullscreenProgress);
         if (opening < 1 && !turning) {
             Camera camera = new Camera();
             Matrix matrix = new Matrix();
@@ -272,6 +316,8 @@ public class PageCurlView extends View {
             effectPaint.setShader(null);
         }
         if(!turning && opening>=0.99f) drawAnnotations(canvas,rect);
+        if(fullscreenProgress<0.99f)drawBookPageEdges(canvas,rect,1f-fullscreenProgress);
+        if(magnifierAlpha>0.008f)drawMagnifier(canvas,rect);
         canvas.restore();
     }
 
@@ -306,6 +352,99 @@ public class PageCurlView extends View {
         }
     }
 
+    // Capas de papel y lomo a ambos lados, sin alterar el contenido del PDF.
+    private void drawBookBackdrop(Canvas canvas,RectF rect,float alpha) {
+        int a=(int)(255*alpha);
+        if(a<2)return;
+        bookPaint.setStyle(Paint.Style.FILL);
+        bookPaint.setColor(fadedColor(0xFFB89A79,(int)(185*alpha)));
+        bookPaint.setShadowLayer(dp(10),0,dp(5),fadedColor(0xFF392617,(int)(90*alpha)));
+        canvas.drawRoundRect(rect.left-dp(10),rect.top+dp(5),rect.right+dp(10),rect.bottom+dp(10),dp(5),dp(5),bookPaint);
+        bookPaint.clearShadowLayer();
+        for(int i=6;i>=1;i--){
+            float offset=i*dp(1.3f);
+            bookPaint.setColor(fadedColor(i%2==0?0xFFF5EBDB:0xFFE6D5BD,(int)(250*alpha)));
+            canvas.drawRoundRect(rect.left-dp(7)+offset*0.3f,rect.top+offset*.50f,
+                rect.right+dp(6)+offset*.55f,rect.bottom+offset,
+                dp(2),dp(2),bookPaint);
+            bookStroke.setColor(fadedColor(0xFFAC9276,(int)(125*alpha)));
+            bookStroke.setStrokeWidth(dp(.7f));
+            canvas.drawLine(rect.right+dp(5)+offset*.55f,rect.top+offset*.6f,
+                rect.right+dp(5)+offset*.55f,rect.bottom+offset,bookStroke);
+        }
+        bookPaint.setShader(new LinearGradient(rect.left-dp(11),0,rect.left+dp(27),0,
+            new int[]{fadedColor(0xFF72523B,(int)(155*alpha)),fadedColor(0xFFD5B998,(int)(115*alpha)),
+                fadedColor(0xFFFFF7E8,(int)(90*alpha)),0x00FFFFFF},
+            null,Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(rect.left-dp(10),rect.top+dp(3),rect.left+dp(27),rect.bottom+dp(4),
+            dp(4),dp(4),bookPaint);
+        bookPaint.setShader(null);
+    }
+    private void drawBookPageEdges(Canvas canvas,RectF rect,float alpha){
+        if(alpha<=0)return;
+        bookPaint.setColor(fadedColor(0xFFB9A48A,(int)(130*alpha)));
+        bookPaint.setStrokeWidth(dp(.65f));
+        for(int i=1;i<=6;i++){
+            float y=rect.bottom+dp(i);
+            canvas.drawLine(rect.left+dp(5),y,rect.right+dp(7),y,bookPaint);
+        }
+        bookPaint.setShader(new LinearGradient(rect.left,0,rect.left+dp(35),0,
+            new int[]{fadedColor(0xFF67462C,(int)(105*alpha)),
+                fadedColor(0xFF9A7C62,(int)(40*alpha)),0x00FFFFFF},
+            null,Shader.TileMode.CLAMP));
+        canvas.drawRect(rect.left,rect.top,rect.left+dp(35),rect.bottom,bookPaint);
+        bookPaint.setShader(null);
+        bookPaint.setShader(new LinearGradient(rect.right-dp(16),0,rect.right,0,
+            new int[]{0x00FFFFFF,fadedColor(0xFF867159,(int)(60*alpha))},
+            null,Shader.TileMode.CLAMP));
+        canvas.drawRect(rect.right-dp(16),rect.top,rect.right,rect.bottom,bookPaint);
+        bookPaint.setShader(null);
+    }
+    private void drawMagnifier(Canvas canvas,RectF rect) {
+        if(page==null||page.isRecycled()||turning||magnifierAlpha<=.01f)return;
+        float radius=dp(65)*(.86f+.14f*magnifierAlpha);
+        float centerX=Math.max(radius+dp(5),Math.min(getWidth()-radius-dp(5),magnifierX));
+        float centerY=magnifierY-dp(112);
+        if(centerY<radius+dp(8))centerY=magnifierY+dp(108);
+        centerY=Math.max(radius+dp(6),Math.min(getHeight()-radius-dp(6),centerY));
+        float zoomFactor=2.35f;
+        float sourceX=(magnifierX-rect.left)*page.getWidth()/Math.max(1,rect.width());
+        float sourceY=(magnifierY-rect.top)*page.getHeight()/Math.max(1,rect.height());
+        float srcWidth=radius*2f*page.getWidth()/Math.max(1,rect.width())/zoomFactor;
+        float srcHeight=radius*2f*page.getHeight()/Math.max(1,rect.height())/zoomFactor;
+        Rect src=new Rect(
+            (int)Math.max(0,Math.min(page.getWidth()-1,sourceX-srcWidth/2f)),
+            (int)Math.max(0,Math.min(page.getHeight()-1,sourceY-srcHeight/2f)),
+            (int)Math.min(page.getWidth(),sourceX+srcWidth/2f),
+            (int)Math.min(page.getHeight(),sourceY+srcHeight/2f));
+        if(src.width()<2||src.height()<2)return;
+        magnifierCircle.reset();
+        magnifierCircle.addCircle(centerX,centerY,radius,Path.Direction.CW);
+        magnifierPaint.setShader(null);
+        magnifierPaint.setColor(fadedColor(0xFF4F3023,(int)(210*magnifierAlpha)));
+        magnifierPaint.setShadowLayer(dp(12),dp(1),dp(6),fadedColor(0xFF000000,(int)(115*magnifierAlpha)));
+        canvas.drawCircle(centerX,centerY,radius+dp(4),magnifierPaint);
+        magnifierPaint.clearShadowLayer();
+        canvas.save();
+        canvas.clipPath(magnifierCircle);
+        magnifierPaint.setColor(Color.WHITE);
+        canvas.drawCircle(centerX,centerY,radius,magnifierPaint);
+        magnifierPaint.setAlpha((int)(255*magnifierAlpha));
+        canvas.drawBitmap(page,src,
+            new RectF(centerX-radius,centerY-radius,centerX+radius,centerY+radius),
+            magnifierPaint);
+        canvas.restore();
+        magnifierPaint.setStyle(Paint.Style.STROKE);
+        magnifierPaint.setColor(fadedColor(0xFFE9CDA7,(int)(245*magnifierAlpha)));
+        magnifierPaint.setStrokeWidth(dp(3));
+        canvas.drawCircle(centerX,centerY,radius,magnifierPaint);
+        magnifierPaint.setStrokeWidth(dp(1));
+        magnifierPaint.setColor(fadedColor(0xFF7A523E,(int)(190*magnifierAlpha)));
+        canvas.drawCircle(centerX,centerY,radius+dp(3),magnifierPaint);
+        magnifierPaint.setStyle(Paint.Style.FILL);
+        magnifierPaint.setAlpha(255);
+    }
+
     private void drawSheet(Canvas canvas, Bitmap bitmap, RectF rect) {
         backgroundPaint.setColor(paperColor);
         backgroundPaint.setShadowLayer(dp(7),dp(1),dp(2),0x33000000);
@@ -317,6 +456,13 @@ public class PageCurlView extends View {
     @Override public boolean onTouchEvent(MotionEvent event) {
         if (turning || page == null) return true;
         if(annotationTool!=0){
+            gestureDetector.onTouchEvent(event);
+            if(event.getActionMasked()==MotionEvent.ACTION_MOVE && longHeld){
+                magnifierX=event.getX();magnifierY=event.getY();invalidate();
+            }else if(event.getActionMasked()==MotionEvent.ACTION_UP ||
+                    event.getActionMasked()==MotionEvent.ACTION_CANCEL){
+                if(longHeld){showMagnifier(magnifierX,magnifierY,false);longHeld=false;}
+            }
             switch(event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     downX=markEndX=event.getX();downY=markEndY=event.getY();
@@ -342,11 +488,16 @@ public class PageCurlView extends View {
         gestureDetector.onTouchEvent(event);
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                longHeld=false;
                 downX = lastX = event.getX();
                 downY = lastY = event.getY();
                 moved = false;
                 return true;
             case MotionEvent.ACTION_MOVE:
+                if(longHeld){
+                    magnifierX=event.getX();magnifierY=event.getY();
+                    invalidate();return true;
+                }
                 if (scaleDetector.isInProgress()) return true;
                 float dx = event.getX() - lastX;
                 float dy = event.getY() - lastY;
@@ -359,6 +510,10 @@ public class PageCurlView extends View {
                 invalidate();
                 return true;
             case MotionEvent.ACTION_UP:
+                if(longHeld){
+                    showMagnifier(event.getX(),event.getY(),false);
+                    longHeld=false;return true;
+                }
                 float swipeX = event.getX() - downX;
                 float swipeY = event.getY() - downY;
                 if (!scaleDetector.isInProgress() && zoom < 1.05f &&
@@ -366,7 +521,9 @@ public class PageCurlView extends View {
                     if (listener != null) listener.onPageRequested(swipeX<0);
                 } else if (!moved) performClick();
                 return true;
-            case MotionEvent.ACTION_CANCEL: return true;
+            case MotionEvent.ACTION_CANCEL:
+                if(longHeld)showMagnifier(event.getX(),event.getY(),false);
+                longHeld=false;return true;
             default: return true;
         }
     }
