@@ -18,6 +18,11 @@ jobs:
             echo "::error::Falta el secreto HOJAS_SIGNING_PASSWORD. Agrégalo en Settings > Secrets and variables > Actions."
             exit 1
           fi
+      - name: Validar respaldo cifrado
+        shell: bash
+        run: |
+          echo "74d272c5daf65965fc7bd5b3d4a0f164c69429a4d1437891a0cab21673ff860d  signing/hojas-stable-signing.enc.b64" | sha256sum -c -
+
       - name: Restaurar clave de firma privada cifrada
         shell: bash
         run: |
@@ -30,6 +35,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Comprobar plataforma y herramientas Android
+        shell: bash
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0'
       - name: Compilar APK final con firma permanente
         run: gradle --no-daemon :app:assembleEstableRelease
       - name: Verificar certificado del APK
