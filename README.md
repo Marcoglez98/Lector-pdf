@@ -87,3 +87,12 @@ No confundas los archivos del workflow de **depuración** con los APK de Hojas E
 - Se conservan narrador TTS, modo libro, lupa, marcador, borrador, cintas animadas, lectura sin distracciones y favoritos.
 - La variante `neon` usa `com.lecturas.hojas.neon` para probar sin reemplazar instalaciones anteriores. Sus archivos y preferencias serán independientes.
 - La variante `estable` usa el identificador `com.lecturas.hojas.estable` ya empleado en la versión estable 1.5; requiere **el mismo certificado de firma permanente** para actualizar sin borrar datos.
+
+## Hojas 1.7 — Cinco apariencias y eliminación de cintas
+- Selector **Temas** con cinco estilos: Clásico (original), Neón Literario, Aurora Literaria, Jardín Bohemio y Talavera Pop. Cada tarjeta muestra su paleta de colores y se aplica al seleccionarla.
+- Bibliotecas para los cuatro estilos nuevos: fondos, tarjetas y encabezados tematizados, portadas reales extraídas de tus PDF, búsqueda, progreso, favoritos y lectura offline.
+- El PDF en modo Libro conserva sus páginas; el estilo colorea el marco, la barra de herramientas, los botones y la cinta sin tapar el texto.
+- **Corrección de cintas:** «− Quitar» muestra todas las cintas del libro (no solo la de la página actual), pide confirmación y la elimina realmente de preferencias, de la hoja y de la bandeja.
+- Menú de acciones de la cinta arreglado: al tocar la cinta sobre el papel puedes abrirla, editar su nota o retirarla; mantener pulsada la cinta muestra la opción de eliminar.
+- La versión de prueba `temas` usa identificador `com.lecturas.hojas.temas` para instalarse junto con las anteriores.
+- La variante `estable` se actualiza sobre Hojas Estable 1.5/1.6 si se firma con el certificado permanente existente; conserva los datos guardados en ese identificador de aplicación.
