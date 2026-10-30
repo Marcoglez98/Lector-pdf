@@ -56,7 +56,7 @@ public class NeonLibraryView extends ScrollView {
                 PURPLE=0xFF008B91;CARD=0xFF133C50;CARD2=0xFF104559;
                 EDGE=0xFF488287;PROGRESS=0xFF0DD7D0;
                 titleFirst="AURORA";titleSecond="LITERARIA";
-                subtitle="Cada libro es un nuevo amanecer.\\nHistorias que iluminan tu día.";
+                subtitle="Cada libro es un nuevo amanecer.\nHistorias que iluminan tu día.";
                 motif="☀";
                 break;
             case "jardin":
@@ -65,7 +65,7 @@ public class NeonLibraryView extends ScrollView {
                 PURPLE=0xFFE11569;CARD=0xFFFFFDFC;CARD2=0xFFFFF1E5;
                 EDGE=0xFFEBBDCC;PROGRESS=0xFF0A9CA5;
                 titleFirst="JARDÍN";titleSecond="BOHEMIO";
-                subtitle="Historias que florecen contigo.\\nUn rincón de flores y libros.";
+                subtitle="Historias que florecen contigo.\nUn rincón de flores y libros.";
                 motif="✿";
                 break;
             case "talavera":
@@ -74,7 +74,7 @@ public class NeonLibraryView extends ScrollView {
                 PURPLE=0xFF1254C1;CARD=0xFFFFFFFF;CARD2=0xFFFFF6EF;
                 EDGE=0xFF9CB3D3;PROGRESS=0xFFFF8300;
                 titleFirst="TALAVERA";titleSecond="POP";
-                subtitle="¡Libros que te llevan más lejos!\\nColor, tradición y lectura.";
+                subtitle="¡Libros que te llevan más lejos!\nColor, tradición y lectura.";
                 motif="❀";
                 break;
             default:
@@ -83,7 +83,7 @@ public class NeonLibraryView extends ScrollView {
                 PURPLE=0xFF9D4CFF;CARD=0xFF171A36;CARD2=0xFF192544;
                 EDGE=0xFF453665;PROGRESS=0xFF00D9FF;
                 titleFirst="NEÓN";titleSecond="LITERARIO";
-                subtitle="Más que PDFs, mundos por vivir.\\nTus historias siempre contigo.";
+                subtitle="Más que PDFs, mundos por vivir.\nTus historias siempre contigo.";
                 motif="✦";
         }
     }
