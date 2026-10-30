@@ -36,7 +36,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Crear APK
-        run: gradle --no-daemon --stacktrace :app:assemblePrincipalDebug :app:assemblePruebaDebug :app:assembleNeonDebug :app:assembleEstableDebug
+        run: gradle --no-daemon --stacktrace :app:assemblePrincipalDebug :app:assemblePruebaDebug :app:assembleNeonDebug :app:assembleTemasDebug :app:assembleEstableDebug
 
       - name: Publicar instalador principal
         uses: actions/upload-artifact@v4
@@ -62,6 +62,13 @@ jobs:
       - name: Publicar base estable para firma permanente
         uses: actions/upload-artifact@v4
         with:
-          name: Hojas-1.6-Base-Estable
+          name: Hojas-1.7-Base-Estable
           path: app/build/outputs/apk/estable/debug/app-estable-debug.apk
+          if-no-files-found: error
+
+      - name: Publicar Hojas Todos los Temas
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hojas-1.7-Cinco-Temas-Prueba
+          path: app/build/outputs/apk/temas/debug/app-temas-debug.apk
           if-no-files-found: error
