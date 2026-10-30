@@ -45,9 +45,6 @@ public class NeonLibraryView extends ScrollView {
     private String selected="Todos";
     private int BACK,WHITE,MUTED,CYAN,PINK,PURPLE,CARD;
     private int BACK2,CARD2,EDGE,PROGRESS;
-    private String titleFirst,titleSecond,subtitle;
-    private String motif="✦";
-    private final String palette;
     private void choosePalette(String key){
         switch(key){
             case "clasico":
@@ -61,39 +58,27 @@ public class NeonLibraryView extends ScrollView {
                 MUTED=0xFFB7C6C3;CYAN=0xFF0DD7D0;PINK=0xFFFFB341;
                 PURPLE=0xFF008B91;CARD=0xFF133C50;CARD2=0xFF104559;
                 EDGE=0xFF488287;PROGRESS=0xFF0DD7D0;
-                titleFirst="AURORA";titleSecond="LITERARIA";
-                subtitle="Cada libro es un nuevo amanecer.\nHistorias que iluminan tu día.";
-                motif="☀";
                 break;
             case "jardin":
                 BACK=0xFFFFF7E9;BACK2=0xFFFFE7CB;WHITE=0xFF244D48;
                 MUTED=0xFF72645B;CYAN=0xFF068F91;PINK=0xFFE11569;
                 PURPLE=0xFFE11569;CARD=0xFFFFFDFC;CARD2=0xFFFFF1E5;
                 EDGE=0xFFEBBDCC;PROGRESS=0xFF0A9CA5;
-                titleFirst="JARDÍN";titleSecond="BOHEMIO";
-                subtitle="Historias que florecen contigo.\nUn rincón de flores y libros.";
-                motif="✿";
                 break;
             case "talavera":
                 BACK=0xFFFFF4E4;BACK2=0xFFFFE9D1;WHITE=0xFF12356F;
                 MUTED=0xFF6C5775;CYAN=0xFF1254C1;PINK=0xFFFF8300;
                 PURPLE=0xFF1254C1;CARD=0xFFFFFFFF;CARD2=0xFFFFF6EF;
                 EDGE=0xFF9CB3D3;PROGRESS=0xFFFF8300;
-                titleFirst="TALAVERA";titleSecond="POP";
-                subtitle="¡Libros que te llevan más lejos!\nColor, tradición y lectura.";
-                motif="❀";
                 break;
             default:
                 BACK=0xFF080F1A;BACK2=0xFF171130;WHITE=0xFFF2ECFF;
                 MUTED=0xFFB1ACCF;CYAN=0xFF00D9FF;PINK=0xFFFF2D9B;
                 PURPLE=0xFF9D4CFF;CARD=0xFF171A36;CARD2=0xFF192544;
                 EDGE=0xFF453665;PROGRESS=0xFF00D9FF;
-                titleFirst="NEÓN";titleSecond="LITERARIO";
-                subtitle="Más que PDFs, mundos por vivir.\nTus historias siempre contigo.";
-                motif="✦";
+                break;
         }
     }
-
     public NeonLibraryView(Activity activity,SharedPreferences prefs,String palette,Actions actions){
         super(activity);
         this.activity=activity;this.prefs=prefs;this.actions=actions;
@@ -120,7 +105,7 @@ public class NeonLibraryView extends ScrollView {
         TextView subtitle=text("a tu manera.",32,PINK,true);
         subtitle.setTypeface(Typeface.create("serif",Typeface.BOLD));
         add(main,subtitle,0,-4,0,13);
-        TextView desc=text("Tus libros y sus portadas, con los colores que elijas.\\n"+
+        TextView desc=text("Tus libros y sus portadas, con los colores que elijas.\n"+
             "Lee y continúa desde donde te quedaste.",15,MUTED,false);
         desc.setLineSpacing(dp(3),1.1f);
         add(main,desc,0,0,0,24);
