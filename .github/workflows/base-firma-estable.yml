@@ -1,0 +1,27 @@
+name: Construir base Hojas Estable (sin firma definitiva)
+on:
+  push:
+    paths:
+      - '.github/workflows/base-firma-estable.yml'
+  workflow_dispatch:
+jobs:
+  construir-base:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compilar base para firmar
+        run: gradle --no-daemon :app:assembleEstableDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hojas-1.5-Base-Estable-Sin-Firma-Definitiva
+          path: app/build/outputs/apk/estable/debug/app-estable-debug.apk
+          if-no-files-found: error
