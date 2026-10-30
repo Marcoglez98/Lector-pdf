@@ -18,7 +18,31 @@ public final class RibbonTabView extends View {
     private boolean miniature;
     private boolean selected;
     private boolean neonTheme=false;
-    public void setNeonTheme(boolean enabled){neonTheme=enabled;invalidate();}
+    private int ribbonColor=0xFFAC233A;
+    private int highlightColor=0xFFFFB2C2;
+    public void setNeonTheme(boolean enabled){
+        neonTheme=enabled;
+        ribbonColor=enabled?0xFFFF2D9B:0xFFAC233A;
+        highlightColor=enabled?0xFFFFA2E4:0xFFFFB2C2;
+        invalidate();
+    }
+    public void setThemeColors(int main,int highlight){
+        ribbonColor=main;highlightColor=highlight;
+        neonTheme=(main==0xFFFF2D9B);
+        invalidate();
+    }
+    private int brighten(int color,float amount){
+        return Color.rgb(
+            (int)(Color.red(color)+(255-Color.red(color))*amount),
+            (int)(Color.green(color)+(255-Color.green(color))*amount),
+            (int)(Color.blue(color)+(255-Color.blue(color))*amount));
+    }
+    private int darken(int color,float amount){
+        return Color.rgb(
+            (int)(Color.red(color)*(1-amount)),
+            (int)(Color.green(color)*(1-amount)),
+            (int)(Color.blue(color)*(1-amount)));
+    }
 
     public RibbonTabView(Context context,String caption,boolean miniature,boolean selected) {
         super(context);
@@ -55,26 +79,26 @@ public final class RibbonTabView extends View {
 
         fill.setShadowLayer(dp(miniature?7:4),dp(2),dp(3),0x65000000);
         fill.setShader(new LinearGradient(left,top,right,bottom,
-            neonTheme ? (selected?
-                new int[]{0xFFFF78D8,0xFFFF2D9B,0xFFB01389}:
-                new int[]{0xFFFC6CCA,0xFFE52CAA,0xFF942273}) :
-            selected?new int[]{0xFFB92B43,0xFFA51631,0xFF650C23}:
-                new int[]{0xFFAD283F,0xFF8B1630,0xFF650D27},
+            new int[]{
+                selected?brighten(ribbonColor,.34f):brighten(ribbonColor,.22f),
+                ribbonColor,
+                darken(ribbonColor,.45f)
+            },
             null,Shader.TileMode.CLAMP));
         canvas.drawPath(ribbon,fill);
         fill.clearShadowLayer();
         fill.setShader(null);
-        if(neonTheme){
+        if(neonTheme || ribbonColor!=0xFFAC233A){
             fill.setStyle(Paint.Style.STROKE);
             fill.setStrokeWidth(dp(1.4f));
-            fill.setColor(0xFFDDA0F6);
+            fill.setColor(highlightColor);
             canvas.drawPath(ribbon,fill);
             fill.setStyle(Paint.Style.FILL);
         }
         // Borde reflectante y dos costuras continuas, como una tira de satén.
         thread.setStyle(Paint.Style.STROKE);
         thread.setStrokeWidth(dp(miniature?1.1f:.9f));
-        thread.setColor(neonTheme?0xD9FFE0FA:0x99FFD9D5);
+        thread.setColor(brighten(highlightColor,.15f));
         canvas.drawLine(left+dp(4),top+dp(5),left+dp(4),bottom-dp(9),thread);
         thread.setColor(0x77D16D78);
         canvas.drawLine(right-dp(4),top+dp(5),right-dp(4),bottom-dp(9),thread);
