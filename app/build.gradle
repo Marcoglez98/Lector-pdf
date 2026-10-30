@@ -8,8 +8,8 @@ android {
         applicationId 'com.lecturas.hojas'
         minSdk 26
         targetSdk 34
-        versionCode 6
-        versionName '1.5.0'
+        versionCode 7
+        versionName '1.6.0'
     }
     signingConfigs {
         hojasPermanente {
@@ -31,6 +31,12 @@ android {
             applicationIdSuffix '.cintaviva'
             versionNameSuffix '-prueba'
             manifestPlaceholders = [hojasName: 'Hojas Cinta Viva']
+        }
+        neon {
+            dimension 'distribucion'
+            applicationIdSuffix '.neon'
+            versionNameSuffix '-neon-prueba'
+            manifestPlaceholders = [hojasName: 'Hojas Neón Literario']
         }
         estable {
             dimension 'distribucion'
