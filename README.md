@@ -51,3 +51,11 @@ La firma de las APK de depuración puede variar entre ejecuciones. Antes de elim
 - **Cinta larga:** aparece sobre el centro de la hoja, con textura de satén, costuras y punta en V; toca la cinta para gestionar el punto de lectura. En pantalla completa queda oculta.
 - Las cintas siguen siendo por libro y compatibles con las guardadas en la versión anterior.
 - La versión de prueba usa identificador de aplicación `com.lecturas.hojas.libroreal` para que pueda instalarse junto a las versiones anteriores.
+
+## Hojas 1.4 — Cinta Viva (efectos de libro físico)
+- Una cinta estrecha de tela roja está sujeta al borde superior, cerca del lomo, y llega hasta la parte inferior de la hoja sin tapar las líneas centrales del texto.
+- Al colocar una cinta nueva, se despliega desde arriba como si cayera por gravedad; se balancea y rebota suavemente antes de quedar reposando sobre el papel.
+- Al seleccionar una cinta de la bandeja, el visor muestra una apertura de varias hojas con sombras y un abanico progresivo que se desplaza hacia el lado izquierdo si avanzas o al lado derecho si retrocedes.
+- La apertura se simula con entre 5 y 15 hojas para mantener fluidez en Android sin procesar decenas o centenares de páginas. El destino sí es la página real del PDF.
+- La cinta oscila al asentarse después de abrir el separador. Las notas, favoritos y posición siguen guardados por libro; en pantalla completa no se muestran adornos.
+- La compilación de prueba tiene el identificador independiente `com.lecturas.hojas.cintaviva` para no interferir con las versiones anteriores.
