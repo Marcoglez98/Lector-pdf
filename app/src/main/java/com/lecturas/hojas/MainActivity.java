@@ -1,5 +1,8 @@
 package com.lecturas.hojas;
 
+import android.animation.ValueAnimator;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
@@ -18,6 +21,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.pdf.PdfRenderer;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 import android.text.Layout;
@@ -38,6 +42,7 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.Magnifier;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -56,6 +61,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -121,6 +128,11 @@ public class MainActivity extends Activity {
     private View readerBorder;
     private RibbonTabView pageRibbon;
     private GestureDetector textTapDetector;
+    private Magnifier nativeTextMagnifier;
+    private boolean textLensActive=false;
+    private ValueAnimator controlsAnimator;
+    private float controlsExpansion=1f;
+    private final IdentityHashMap<View,Integer> fullHeights=new IdentityHashMap<>();
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -366,6 +378,8 @@ public class MainActivity extends Activity {
 
     private void showReader() {
         readingFullscreen=false;
+        controlsExpansion=1f;
+        fullHeights.clear();
         pendingOpenAnimation=true;
         setSystemBars(nightMode);
         screen.removeAllViews();
@@ -456,6 +470,10 @@ public class MainActivity extends Activity {
             }
             @Override public void onDestroyActionMode(ActionMode mode) { }
         });
+        nativeTextMagnifier=null;
+        if(Build.VERSION.SDK_INT>=28) {
+            try{nativeTextMagnifier=new Magnifier(textView);}catch(Exception ignored){}
+        }
         textTapDetector=new GestureDetector(this,new GestureDetector.SimpleOnGestureListener(){
             @Override public boolean onDown(MotionEvent e){return true;}
             @Override public boolean onSingleTapConfirmed(MotionEvent e){
@@ -464,9 +482,31 @@ public class MainActivity extends Activity {
             @Override public boolean onDoubleTap(MotionEvent e){
                 handleReaderTap(true);return true;
             }
+            @Override public void onLongPress(MotionEvent e){
+                if(nativeTextMagnifier!=null && !busy && !readingFullscreen){
+                    try{
+                        nativeTextMagnifier.show(e.getX(),e.getY());
+                        textLensActive=true;
+                    }catch(Exception ignored){}
+                }
+            }
         });
-        // No consumir los eventos: mantener selección de texto y desplazamiento nativos.
-        textView.setOnTouchListener((v,e)->{textTapDetector.onTouchEvent(e);return false;});
+        // La lupa nativa agranda el fragmento, sin sustituir la selección Android.
+        textView.setOnTouchListener((v,e)->{
+            textTapDetector.onTouchEvent(e);
+            if(textLensActive && nativeTextMagnifier!=null) {
+                try{
+                    if(e.getActionMasked()==MotionEvent.ACTION_MOVE)
+                        nativeTextMagnifier.show(e.getX(),e.getY());
+                    if(e.getActionMasked()==MotionEvent.ACTION_UP ||
+                        e.getActionMasked()==MotionEvent.ACTION_CANCEL){
+                        nativeTextMagnifier.dismiss();
+                        textLensActive=false;
+                    }
+                }catch(Exception ignored){}
+            }
+            return false;
+        });
         textScroll.setOnTouchListener((v,e)->{textTapDetector.onTouchEvent(e);return false;});
         textScroll.addView(textView,new ScrollView.LayoutParams(-1,-2));
         readingSurface.addView(textScroll,new FrameLayout.LayoutParams(-1,-1));
@@ -475,10 +515,17 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(dp(42),dp(42),Gravity.CENTER);
         readingSurface.addView(pageLoading,lp);
         pageRibbon=new RibbonTabView(this,"",true,true);
-        FrameLayout.LayoutParams ribbonPosition=new FrameLayout.LayoutParams(dp(56),dp(87),
-            Gravity.TOP|Gravity.END);
-        ribbonPosition.setMargins(0,dp(2),dp(18),0);
+        FrameLayout.LayoutParams ribbonPosition=new FrameLayout.LayoutParams(dp(36),dp(230),
+            Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+        ribbonPosition.topMargin=dp(5);
         readingSurface.addView(pageRibbon,ribbonPosition);
+        // La cinta ocupa aproximadamente dos tercios de una hoja real.
+        readingSurface.addOnLayoutChangeListener((v,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{
+            if(pageRibbon==null || right-left<=0 || bottom-top<=0)return;
+            int target=Math.max(dp(160),Math.min(dp(365),(int)((bottom-top)*0.65f)));
+            FrameLayout.LayoutParams params=(FrameLayout.LayoutParams)pageRibbon.getLayoutParams();
+            if(params.height!=target){params.height=target;pageRibbon.setLayoutParams(params);}
+        });
         pageRibbon.setOnClickListener(v->showCurrentRibbon());
         pageRibbon.setVisibility(View.GONE);
 
@@ -948,35 +995,91 @@ public class MainActivity extends Activity {
             setReadingFullscreen(true);
         }
     }
+    private View[] readingChrome(){
+        return new View[]{readerToolbar,readerBorder,readerModes,bookTools,
+            readerControls,ribbonShelf,pageCounter};
+    }
     private void setReadingFullscreen(boolean enabled){
         if(readerLayout==null||readerLayout.getParent()==null)return;
-        if(readingFullscreen==enabled)return;
+        if(readingFullscreen==enabled && controlsAnimator==null)return;
         readingFullscreen=enabled;
         if(enabled && annotationMode!=0){
             annotationMode=0;
             if(curlView!=null)curlView.setAnnotationTool(0);
             updateAnnotationButtons();
         }
-        int visibility=enabled?View.GONE:View.VISIBLE;
-        if(readerToolbar!=null)readerToolbar.setVisibility(visibility);
-        if(readerBorder!=null)readerBorder.setVisibility(visibility);
-        if(readerModes!=null)readerModes.setVisibility(visibility);
-        if(readerControls!=null)readerControls.setVisibility(visibility);
-        if(pageCounter!=null)pageCounter.setVisibility(visibility);
-        if(ribbonShelf!=null)ribbonShelf.setVisibility(visibility);
-        if(bookTools!=null)bookTools.setVisibility(enabled||textMode?View.GONE:View.VISIBLE);
-        if(textView!=null) {
-            textView.setPadding(dp(enabled?15:23),dp(enabled?12:27),
-                dp(enabled?15:23),dp(enabled?18:36));
+        if(controlsAnimator!=null)controlsAnimator.cancel();
+        // Reservamos alturas reales de cada barra para animar sin saltos.
+        for(View view:readingChrome()){
+            if(view==null)continue;
+            if(!fullHeights.containsKey(view) && view.getHeight()>0)
+                fullHeights.put(view,view.getHeight());
+        }
+        if(!enabled)setSystemBars(nightMode);
+        float start=controlsExpansion,target=enabled?0f:1f;
+        for(View view:readingChrome()){
+            if(view==null || view==bookTools&&textMode)continue;
+            view.setVisibility(View.VISIBLE);
         }
         if(curlView!=null)curlView.setFullPage(enabled);
-        refreshRibbonViews();
-        if(enabled){
-            getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-        }else setSystemBars(nightMode);
+        if(pageRibbon!=null && !enabled)refreshRibbonViews();
+        ValueAnimator anim=ValueAnimator.ofFloat(start,target);
+        controlsAnimator=anim;
+        anim.setDuration(410);
+        anim.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        anim.addUpdateListener(a->{
+            float p=(float)a.getAnimatedValue();
+            controlsExpansion=p;
+            for(View view:readingChrome()){
+                if(view==null || view==bookTools&&textMode)continue;
+                Integer original=fullHeights.get(view);
+                if(original==null)continue;
+                ViewGroup.LayoutParams params=view.getLayoutParams();
+                int value=Math.max(0,Math.round(original*p));
+                if(params.height!=value){
+                    params.height=value;
+                    view.setLayoutParams(params);
+                }
+                view.setAlpha(p);
+            }
+            if(textView!=null){
+                textView.setPadding(dp(15f+8f*p),dp(12f+15f*p),
+                    dp(15f+8f*p),dp(18f+18f*p));
+            }
+            if(pageRibbon!=null)pageRibbon.setAlpha(p);
+        });
+        anim.addListener(new AnimatorListenerAdapter(){
+            private boolean cancelled=false;
+            @Override public void onAnimationCancel(Animator a){cancelled=true;}
+            @Override public void onAnimationEnd(Animator a){
+                if(cancelled || controlsAnimator!=a)return;
+                controlsAnimator=null;
+                if(readingFullscreen){
+                    for(View view:readingChrome())
+                        if(view!=null)view.setVisibility(View.GONE);
+                    if(pageRibbon!=null)pageRibbon.setVisibility(View.GONE);
+                    getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+                } else {
+                    for(View view:readingChrome()){
+                        if(view==null)continue;
+                        view.setVisibility(view==bookTools && textMode?View.GONE:View.VISIBLE);
+                        view.setAlpha(1f);
+                        Integer height=fullHeights.get(view);
+                        if(height!=null){
+                            ViewGroup.LayoutParams params=view.getLayoutParams();
+                            params.height=height;
+                            view.setLayoutParams(params);
+                        }
+                    }
+                    setSystemBars(nightMode);
+                    refreshRibbonViews();
+                }
+            }
+        });
+        anim.start();
     }
 
     private JSONArray readRibbons() {
@@ -1028,7 +1131,12 @@ public class MainActivity extends Activity {
                 nightMode?0xFFD2A6A7:MUTED,false);
             ribbonSlots.addView(hint);
         }
-        pageRibbon.setVisibility(top!=null&&!readingFullscreen?View.VISIBLE:View.GONE);
+        boolean showTop=top!=null && (!readingFullscreen || controlsAnimator!=null);
+        pageRibbon.setVisibility(showTop?View.VISIBLE:View.GONE);
+        if(showTop && controlsAnimator==null){
+            pageRibbon.setAlpha(0f);
+            pageRibbon.animate().alpha(1f).setDuration(260).start();
+        }
         if(top!=null){
             final JSONObject selected=top;
             pageRibbon.setCaption("P. "+(currentPage+1));
