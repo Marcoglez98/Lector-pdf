@@ -310,7 +310,7 @@ public class MainActivity extends Activity {
         NeonLibraryView library=new NeonLibraryView(this,prefs,libraryPalette,new NeonLibraryView.Actions(){
             @Override public void open(Uri uri){openPdf(uri);}
             @Override public void addPdf(){pickPdf();}
-            @Override public void changeTheme(){showPalettes();}
+            @Override public void changePalette(){showPalettes();}
         });
         screen.addView(library,new FrameLayout.LayoutParams(-1,-1));
     }
