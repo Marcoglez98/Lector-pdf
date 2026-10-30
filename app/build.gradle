@@ -8,8 +8,8 @@ android {
         applicationId 'com.lecturas.hojas'
         minSdk 26
         targetSdk 34
-        versionCode 3
-        versionName '1.2.0'
+        versionCode 4
+        versionName '1.3.0'
     }
     flavorDimensions 'distribucion'
     productFlavors {
@@ -19,9 +19,9 @@ android {
         }
         prueba {
             dimension 'distribucion'
-            applicationIdSuffix '.cintas'
+            applicationIdSuffix '.libroreal'
             versionNameSuffix '-prueba'
-            manifestPlaceholders = [hojasName: 'Hojas Cintas · Prueba']
+            manifestPlaceholders = [hojasName: 'Hojas Libro Real']
         }
     }
     compileOptions {
