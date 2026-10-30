@@ -11,6 +11,7 @@ import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.RectF;
 import android.speech.tts.Voice;
@@ -41,6 +42,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Magnifier;
 import android.widget.ProgressBar;
@@ -74,13 +76,18 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private static final int PICK_PDF = 1701;
     private static final int MENU_HIGHLIGHT = 707;
-    private static final int INK = Color.rgb(57, 43, 34);
-    private static final int MUTED = Color.rgb(126, 108, 91);
-    private static final int ACCENT = Color.rgb(143, 94, 58);
-    private static final int PAPER = Color.rgb(247, 241, 231);
-    private static final int WHITE = Color.rgb(255, 252, 247);
-    private static final int LINE = Color.rgb(225, 212, 197);
-    private static final int DARK = Color.rgb(27, 31, 39);
+    private int INK = Color.rgb(57, 43, 34);
+    private int MUTED = Color.rgb(126, 108, 91);
+    private int ACCENT = Color.rgb(143, 94, 58);
+    private int PAPER = Color.rgb(247, 241, 231);
+    private int WHITE = Color.rgb(255, 252, 247);
+    private int LINE = Color.rgb(225, 212, 197);
+    private int DARK = Color.rgb(27, 31, 39);
+    private boolean neonTheme=false;
+    private String visualTheme="clasico";
+    private static final int NEON_CYAN=0xFF00D9FF;
+    private static final int NEON_PINK=0xFFFF2D9B;
+    private static final int NEON_VIOLET=0xFF9D4CFF;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final HashMap<Integer, String> extractedTextCache = new HashMap<>();
@@ -141,6 +148,9 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("hojas_reader_v1", MODE_PRIVATE);
         fontSizeSp = prefs.getFloat("fontsize",21f);
         nightMode = prefs.getBoolean("night",false);
+        visualTheme=prefs.getString("visual_theme",
+            getPackageName().endsWith(".neon")?"neon":"clasico");
+        applyVisualTheme();
         animatedPages = prefs.getBoolean("animate",true);
         PDFBoxResourceLoader.init(getApplicationContext());
         screen = new FrameLayout(this);
@@ -184,12 +194,54 @@ public class MainActivity extends Activity {
         if (intent!=null && intent.getData()!=null) openPdf(intent.getData());
     }
 
+    private void applyVisualTheme(){
+        neonTheme="neon".equals(visualTheme);
+        if(neonTheme){
+            INK=0xFFF3EFFF;MUTED=0xFFAEB4D0;ACCENT=NEON_VIOLET;
+            PAPER=0xFF080E1B;WHITE=0xFF131D34;LINE=0xFF39436B;DARK=0xFF080E1B;
+        } else {
+            INK=Color.rgb(57,43,34);MUTED=Color.rgb(126,108,91);
+            ACCENT=Color.rgb(143,94,58);PAPER=Color.rgb(247,241,231);
+            WHITE=Color.rgb(255,252,247);LINE=Color.rgb(225,212,197);
+            DARK=Color.rgb(27,31,39);
+        }
+    }
+    private void changeVisualTheme(String selection){
+        if(selection.equals(visualTheme))return;
+        visualTheme=selection;
+        prefs.edit().putString("visual_theme",selection).apply();
+        applyVisualTheme();
+        if(readerLayout!=null && readerLayout.getParent()!=null){
+            if(busy){toast("Espera a que termine de cargar la página.");return;}
+            showReader();
+            loadPageAt(currentPage,false,true);
+        } else showLibrary();
+    }
+    private void showThemes(){
+        String[] names={"⚡ Neón Literario · cian, violeta y magenta",
+            "📖 Clásico · papel cálido y tonos tierra"};
+        new AlertDialog.Builder(this)
+            .setTitle("🎨 Apariencia de Hojas")
+            .setSingleChoiceItems(names,neonTheme?0:1,(dialog,which)->{
+                dialog.dismiss();
+                changeVisualTheme(which==0?"neon":"clasico");
+            })
+            .setNeutralButton("Cerrar",null)
+            .setMessage("Puedes cambiar de tema cuando quieras. Tus libros, cintas y favoritos se conservan.")
+            .show();
+    }
     private int dp(float value) { return (int)(value * getResources().getDisplayMetrics().density + 0.5f); }
     private GradientDrawable bg(int fill, int corner, int stroke) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(fill);
         drawable.setCornerRadius(dp(corner));
-        if (stroke!=Color.TRANSPARENT) drawable.setStroke(dp(1),stroke);
+        if(neonTheme && fill!=Color.TRANSPARENT){
+            if(fill==ACCENT || fill==NEON_PINK){
+                drawable.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+                drawable.setColors(new int[]{0xFF6540DB,NEON_VIOLET,0xFFCF2DAD});
+                drawable.setStroke(dp(1),0xFFDBA3FF);
+            }else drawable.setStroke(dp(1),stroke==Color.TRANSPARENT?0xFF3D426D:stroke);
+        } else if(stroke!=Color.TRANSPARENT)drawable.setStroke(dp(1),stroke);
         return drawable;
     }
     private TextView label(String content, int size, int color, boolean bold) {
@@ -205,6 +257,10 @@ public class MainActivity extends Activity {
         TextView t = label(content,size,fg,true);
         t.setGravity(Gravity.CENTER);
         t.setBackground(bg(fill,13,Color.TRANSPARENT));
+        if(neonTheme && fill==ACCENT){
+            t.setElevation(dp(4));
+            t.setLetterSpacing(.025f);
+        }
         t.setPadding(dp(13),dp(10),dp(13),dp(10));
         t.setOnClickListener(v -> handler.run());
         return t;
@@ -222,9 +278,10 @@ public class MainActivity extends Activity {
         return v;
     }
     private void setSystemBars(boolean dark) {
-        getWindow().setStatusBarColor(dark ? DARK : PAPER);
-        getWindow().setNavigationBarColor(dark ? DARK : PAPER);
-        int f = dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        boolean useDark=dark||neonTheme;
+        getWindow().setStatusBarColor(useDark ? DARK : PAPER);
+        getWindow().setNavigationBarColor(useDark ? DARK : PAPER);
+        int f = useDark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         getWindow().getDecorView().setSystemUiVisibility(f);
     }
 
@@ -234,6 +291,7 @@ public class MainActivity extends Activity {
         requestVersion++;
         readingFullscreen=false;
         setSystemBars(false);
+        if(neonTheme){showNeonLibrary();return;}
         screen.removeAllViews();
         ScrollView sc = new ScrollView(this);
         sc.setFillViewport(true);
@@ -403,6 +461,10 @@ public class MainActivity extends Activity {
         TextView voice=clickable("🎙",22,nightMode?WHITE:INK,Color.TRANSPARENT,this::showVoiceDialog);
         voice.setContentDescription("Voces y descarga para narración");
         toolbar.addView(voice);
+        TextView themeButton=clickable("✦",24,neonTheme?NEON_CYAN:ACCENT,
+            Color.TRANSPARENT,this::showThemes);
+        themeButton.setContentDescription("Cambiar tema del lector");
+        toolbar.addView(themeButton);
         TextView settings=clickable("⚙",22,nightMode?WHITE:INK,Color.TRANSPARENT,this::showSettings);
         settings.setContentDescription("Preferencias de lectura");toolbar.addView(settings);
         readerLayout.addView(toolbar);
@@ -519,6 +581,7 @@ public class MainActivity extends Activity {
         // Cinta delgada anclada al borde superior, junto al lomo;
         // no tapa el cuerpo del texto y sobresale por debajo del papel.
         pageRibbon=new RibbonTabView(this,"",true,true);
+        pageRibbon.setNeonTheme(neonTheme);
         FrameLayout.LayoutParams ribbonPosition=new FrameLayout.LayoutParams(dp(25),dp(280),
             Gravity.TOP|Gravity.LEFT);
         readingSurface.addView(pageRibbon,ribbonPosition);
@@ -527,6 +590,7 @@ public class MainActivity extends Activity {
         curlView.addOnLayoutChangeListener((v,left,top,right,bottom,
             oldLeft,oldTop,oldRight,oldBottom)->positionPageRibbon());
         pageRibbon.setOnClickListener(v->showCurrentRibbon());
+        pageRibbon.setOnLongClickListener(v->{showCurrentRibbon();return true;});
         pageRibbon.setVisibility(View.GONE);
 
         LinearLayout controls=horizontal();readerControls=controls;controls.setPadding(dp(12),dp(7),dp(12),dp(7));
@@ -1093,10 +1157,15 @@ public class MainActivity extends Activity {
     private void createRibbonShelf() {
         ribbonShelf=horizontal();
         ribbonShelf.setPadding(dp(12),dp(2),dp(8),dp(3));
-        ribbonShelf.setBackgroundColor(nightMode?0xFF303138:0xFFF1E5D6);
+        ribbonShelf.setBackgroundColor(neonTheme?0xFF10152B:(nightMode?0xFF303138:0xFFF1E5D6));
         TextView add=clickable("＋ Cinta",13,Color.WHITE,0xFF8F1C32,this::offerRibbon);
         add.setContentDescription("Colocar una cinta roja en esta página");
         ribbonShelf.addView(add,new LinearLayout.LayoutParams(dp(91),dp(45)));
+        TextView remove=clickable("− Quitar",12,neonTheme?NEON_PINK:ACCENT,
+            neonTheme?0xFF22203B:WHITE,this::removeCurrentRibbonPrompt);
+        LinearLayout.LayoutParams deleteSize=new LinearLayout.LayoutParams(dp(83),dp(45));
+        deleteSize.leftMargin=dp(6);
+        ribbonShelf.addView(remove,deleteSize);
         HorizontalScrollView shelfScroll=new HorizontalScrollView(this);
         shelfScroll.setHorizontalScrollBarEnabled(false);
         ribbonSlots=horizontal();
@@ -1118,6 +1187,7 @@ public class MainActivity extends Activity {
             if(page==currentPage)top=item;
             String note=item.optString("note","");
             RibbonTabView tab=new RibbonTabView(this,"Pág. "+(page+1),false,page==currentPage);
+            tab.setNeonTheme(neonTheme);
             tab.setContentDescription("Cinta roja. Página "+(page+1)+". "+note+
                 ". Toca para ir o mantén pulsado para editar o retirar.");
             tab.setOnClickListener(v->openRibbon(item));
@@ -1240,6 +1310,33 @@ public class MainActivity extends Activity {
         }
         writeRibbons(updated);
         toast("Cinta retirada del libro");
+    }
+    private void removeCurrentRibbonPrompt(){
+        JSONArray saved=readRibbons();
+        ArrayList<JSONObject> targets=new ArrayList<>();
+        ArrayList<String> labels=new ArrayList<>();
+        for(int i=0;i<saved.length();i++){
+            JSONObject item=saved.optJSONObject(i);
+            if(item!=null && item.optInt("page",-1)==currentPage){
+                targets.add(item);
+                labels.add("Pág. "+(currentPage+1)+" · "+item.optString("note","Cinta"));
+            }
+        }
+        if(targets.isEmpty()){
+            toast("No hay cintas en esta página. También puedes mantener pulsada una cinta de la bandeja.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Quitar cinta separadora")
+            .setItems(labels.toArray(new String[0]),(d,which)->{
+                JSONObject selected=targets.get(which);
+                new AlertDialog.Builder(this)
+                    .setTitle("¿Retirar esta cinta?")
+                    .setMessage(selected.optString("note","Cinta de la página "+(currentPage+1)))
+                    .setNegativeButton("Cancelar",null)
+                    .setPositiveButton("Quitar",(d2,w)->removeRibbon(selected.optString("id","")))
+                    .show();
+            }).setNegativeButton("Cancelar",null).show();
     }
     private void showCurrentRibbon(){
         JSONArray saved=readRibbons();
@@ -1428,16 +1525,18 @@ public class MainActivity extends Activity {
     private void showSettings() {
         String anim=animatedPages?"activada":"desactivada";
         new AlertDialog.Builder(this).setTitle("Preferencias de lectura")
-            .setItems(new String[]{"☀  Modo papel cálido","☾  Modo noche", "◒  Animación "+anim,
+            .setItems(new String[]{"🎨  Cambiar apariencia ("+(neonTheme?"Neón Literario":"Clásico")+")",
+                    "☀  Modo papel cálido","☾  Modo noche", "◒  Animación "+anim,
                     "↺  Restablecer tamaño / zoom", "＋  Abrir otro PDF"}, (d,index) -> {
                 switch(index) {
-                    case 0: nightMode=false;prefs.edit().putBoolean("night",false).apply();rebuildReader();break;
-                    case 1: nightMode=true;prefs.edit().putBoolean("night",true).apply();rebuildReader();break;
-                    case 2: animatedPages=!animatedPages;prefs.edit().putBoolean("animate",animatedPages).apply();
+                    case 0: showThemes();break;
+                    case 1: nightMode=false;prefs.edit().putBoolean("night",false).apply();rebuildReader();break;
+                    case 2: nightMode=true;prefs.edit().putBoolean("night",true).apply();rebuildReader();break;
+                    case 3: animatedPages=!animatedPages;prefs.edit().putBoolean("animate",animatedPages).apply();
                         toast("Animación "+(animatedPages?"activada":"desactivada"));break;
-                    case 3: fontSizeSp=21;prefs.edit().putFloat("fontsize",fontSizeSp).apply();
+                    case 4: fontSizeSp=21;prefs.edit().putFloat("fontsize",fontSizeSp).apply();
                         if (textMode) textView.setTextSize(fontSizeSp);else curlView.setZoom(1f);break;
-                    case 4: pickPdf();break;
+                    case 5: pickPdf();break;
                 }
             }).show();
     }
