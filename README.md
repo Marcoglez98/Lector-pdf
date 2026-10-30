@@ -59,3 +59,22 @@ La firma de las APK de depuración puede variar entre ejecuciones. Antes de elim
 - La apertura se simula con entre 5 y 15 hojas para mantener fluidez en Android sin procesar decenas o centenares de páginas. El destino sí es la página real del PDF.
 - La cinta oscila al asentarse después de abrir el separador. Las notas, favoritos y posición siguen guardados por libro; en pantalla completa no se muestran adornos.
 - La compilación de prueba tiene el identificador independiente `com.lecturas.hojas.cintaviva` para no interferir con las versiones anteriores.
+
+## Hojas Estable 1.5 — firma permanente para actualizaciones
+
+**Diagnóstico:** las versiones 1.0–1.4 generadas anteriormente en GitHub Actions estaban firmadas con claves de depuración distintas. Android exige el mismo identificador de aplicación, la misma firma y un versionCode adecuado para poder actualizar en sitio. Las claves privadas antiguas no fueron conservadas en el repositorio y no se pueden recuperar a partir de los APK; por ello no es posible actualizar directamente una instalación antigua sin su clave de origen.
+
+**Solución:** la variante `estable` tiene el identificador permanente `com.lecturas.hojas.estable`, y desde 1.5 se firma con un certificado RSA-3072 fijo (SHA-256: `cb849c052bd37a589d37e23cb580185c249fce172cf4ed7797c828ead347163a`). Se puede instalar junto a las anteriores. **A partir de esta instalación, las versiones firmadas con la misma clave y un versionCode mayor sí podrán actualizarse conservando sus datos.**
+
+### Habilitar la compilación firmada en GitHub (solo una vez)
+
+1. Guarda de forma privada el respaldo del almacén de claves `hojas-stable-signing.p12` y el archivo `CLAVE-HOJAS-FIRMA-IMPORTANTE.txt` entregados por el asistente. Nunca los subas al repositorio público ni compartas la contraseña.
+2. Abre el repositorio en GitHub → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
+3. Nombre: `HOJAS_SIGNING_PASSWORD`. Valor: la contraseña de firma que aparece en tu archivo privado.
+4. Después ve a **Actions** → **Hojas APK estable firmado (actualizable)** → **Run workflow**. Obtendrás el archivo `Hojas-Estable-APK-Firmado` en *Artifacts*.
+
+El fichero `signing/hojas-stable-signing.enc.b64` que se conserva en GitHub es **un respaldo CIFRADO**, no la clave en texto claro. El flujo lo descifra temporalmente únicamente en el ejecutor, usa la contraseña como variable secreta y la borra al terminar. La clave de la variante estable no se coloca en el repositorio público.
+
+No confundas los archivos del workflow de **depuración** con los APK de Hojas Estable. Estos primeros NO sirven como actualización de la versión estable.
+
+**Almacenamiento:** las versiones anteriores conservan sus favoritos y cintas en sus respectivas instalaciones; esos datos no se migran automáticamente entre aplicaciones con identificadores diferentes. No las desinstales sin considerar la pérdida de sus datos.
