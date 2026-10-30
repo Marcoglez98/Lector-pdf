@@ -1,4 +1,4 @@
-name: Verificar código Android (APK de depuración)
+name: Hojas 1.8 — APK biblioteca con paletas
 on:
   push:
     branches: [main]
@@ -11,64 +11,31 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Obtener repositorio
+      - name: Obtener proyecto
         uses: actions/checkout@v4
-
-      - name: Comprobar archivos Android
-        run: |
-          test -f app/src/main/java/com/lecturas/hojas/MainActivity.java
-          test -f app/src/main/java/com/lecturas/hojas/PageCurlView.java
-
-      - name: Instalar Java 17
+      - name: Preparar Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Instalar Gradle
+      - name: Preparar Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
-      - name: Instalar plataforma Android 35
+      - name: Preparar SDK Android
         run: |
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0'
-
-      - name: Crear APK
-        run: gradle --no-daemon --stacktrace :app:assemblePrincipalDebug :app:assemblePruebaDebug :app:assembleNeonDebug :app:assembleTemasDebug :app:assembleEstableDebug
-
-      - name: Publicar instalador principal
+      - name: Compilar biblioteca con paletas y base estable
+        run: gradle --no-daemon --stacktrace :app:assembleTemasDebug :app:assembleEstableDebug
+      - name: Publicar APK de prueba independiente
         uses: actions/upload-artifact@v4
         with:
-          name: PRUEBA-SIN-FIRMA-FIJA-NO-ACTUALIZAR
-          path: app/build/outputs/apk/principal/debug/app-principal-debug.apk
-          if-no-files-found: error
-
-      - name: Publicar prueba independiente
-        uses: actions/upload-artifact@v4
-        with:
-          name: PRUEBA-INDEPENDIENTE-SIN-FIRMA-FIJA
-          path: app/build/outputs/apk/prueba/debug/app-prueba-debug.apk
-          if-no-files-found: error
-
-      - name: Publicar Neón Literario para instalar por separado
-        uses: actions/upload-artifact@v4
-        with:
-          name: Hojas-1.6-Neon-Literario-Prueba
-          path: app/build/outputs/apk/neon/debug/app-neon-debug.apk
-          if-no-files-found: error
-
-      - name: Publicar base estable para firma permanente
-        uses: actions/upload-artifact@v4
-        with:
-          name: Hojas-1.7-Base-Estable
-          path: app/build/outputs/apk/estable/debug/app-estable-debug.apk
-          if-no-files-found: error
-
-      - name: Publicar Hojas Todos los Temas
-        uses: actions/upload-artifact@v4
-        with:
-          name: Hojas-1.7-Cinco-Temas-Prueba
+          name: Hojas-1.8-Biblioteca-Paletas-Prueba
           path: app/build/outputs/apk/temas/debug/app-temas-debug.apk
+          if-no-files-found: error
+      - name: Publicar base para la versión estable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hojas-1.8-Base-Estable-Sin-Firma-Permanente
+          path: app/build/outputs/apk/estable/debug/app-estable-debug.apk
           if-no-files-found: error
