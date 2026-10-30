@@ -1,4 +1,4 @@
-name: Compilar APK Android
+name: Verificar código Android (APK de depuración)
 on:
   push:
     branches: [main]
@@ -41,13 +41,13 @@ jobs:
       - name: Publicar instalador principal
         uses: actions/upload-artifact@v4
         with:
-          name: Hojas-1.4-Principal
+          name: PRUEBA-SIN-FIRMA-FIJA-NO-ACTUALIZAR
           path: app/build/outputs/apk/principal/debug/app-principal-debug.apk
           if-no-files-found: error
 
       - name: Publicar prueba independiente
         uses: actions/upload-artifact@v4
         with:
-          name: Hojas-1.4-Cinta-Viva-Prueba
+          name: PRUEBA-INDEPENDIENTE-SIN-FIRMA-FIJA
           path: app/build/outputs/apk/prueba/debug/app-prueba-debug.apk
           if-no-files-found: error
