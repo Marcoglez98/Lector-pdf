@@ -36,7 +36,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Crear APK
-        run: gradle --no-daemon --stacktrace :app:assemblePrincipalDebug :app:assemblePruebaDebug
+        run: gradle --no-daemon --stacktrace :app:assemblePrincipalDebug :app:assemblePruebaDebug :app:assembleNeonDebug :app:assembleEstableDebug
 
       - name: Publicar instalador principal
         uses: actions/upload-artifact@v4
@@ -50,4 +50,18 @@ jobs:
         with:
           name: PRUEBA-INDEPENDIENTE-SIN-FIRMA-FIJA
           path: app/build/outputs/apk/prueba/debug/app-prueba-debug.apk
+          if-no-files-found: error
+
+      - name: Publicar Neón Literario para instalar por separado
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hojas-1.6-Neon-Literario-Prueba
+          path: app/build/outputs/apk/neon/debug/app-neon-debug.apk
+          if-no-files-found: error
+
+      - name: Publicar base estable para firma permanente
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hojas-1.6-Base-Estable
+          path: app/build/outputs/apk/estable/debug/app-estable-debug.apk
           if-no-files-found: error
