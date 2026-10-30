@@ -8,8 +8,17 @@ android {
         applicationId 'com.lecturas.hojas'
         minSdk 26
         targetSdk 34
-        versionCode 5
-        versionName '1.4.0'
+        versionCode 6
+        versionName '1.5.0'
+    }
+    signingConfigs {
+        hojasPermanente {
+            // El workflow descifra temporalmente la clave; nunca se publica.
+            storeFile file('../signing/hojas-estable.p12')
+            storePassword System.getenv('HOJAS_SIGNING_PASSWORD') ?: ''
+            keyAlias 'hojas'
+            keyPassword System.getenv('HOJAS_SIGNING_PASSWORD') ?: ''
+        }
     }
     flavorDimensions 'distribucion'
     productFlavors {
@@ -23,6 +32,12 @@ android {
             versionNameSuffix '-prueba'
             manifestPlaceholders = [hojasName: 'Hojas Cinta Viva']
         }
+        estable {
+            dimension 'distribucion'
+            applicationIdSuffix '.estable'
+            versionNameSuffix '-estable'
+            manifestPlaceholders = [hojasName: 'Hojas Estable']
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -30,7 +45,10 @@ android {
     }
     buildTypes {
         debug { minifyEnabled false }
-        release { minifyEnabled false }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.hojasPermanente
+        }
     }
     packaging {
         resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}', 'META-INF/DEPENDENCIES'] }
