@@ -78,3 +78,12 @@ El fichero `signing/hojas-stable-signing.enc.b64` que se conserva en GitHub es *
 No confundas los archivos del workflow de **depuración** con los APK de Hojas Estable. Estos primeros NO sirven como actualización de la versión estable.
 
 **Almacenamiento:** las versiones anteriores conservan sus favoritos y cintas en sus respectivas instalaciones; esos datos no se migran automáticamente entre aplicaciones con identificadores diferentes. No las desinstales sin considerar la pérdida de sus datos.
+
+## Hojas 1.6 — Neón Literario
+- **Tema Neón Literario**: fondo carbón violeta, magenta y cian luminosos, tipografía de biblioteca renovada, botones con degradados y cinta magenta.
+- **Selector de estilos**: desde «✦» o Ajustes > Cambiar apariencia, alterna entre «Neón Literario» y «Clásico». Los otros estilos del catálogo visual podrán añadirse posteriormente.
+- **Biblioteca Neón funcional**: muestra PDF abiertos, miniatura generada localmente desde su primera página, barra de progreso, búsqueda por título y filtros Leyendo y Favoritos.
+- **Quitar cinta**: aparece «− Quitar» junto a «＋ Cinta»; también se puede tocar/mantener pulsada una cinta para abrir su menú, confirmar que se retira y guardar el cambio.
+- Se conservan narrador TTS, modo libro, lupa, marcador, borrador, cintas animadas, lectura sin distracciones y favoritos.
+- La variante `neon` usa `com.lecturas.hojas.neon` para probar sin reemplazar instalaciones anteriores. Sus archivos y preferencias serán independientes.
+- La variante `estable` usa el identificador `com.lecturas.hojas.estable` ya empleado en la versión estable 1.5; requiere **el mismo certificado de firma permanente** para actualizar sin borrar datos.
