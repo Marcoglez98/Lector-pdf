@@ -44,6 +44,11 @@ public class PageCurlView extends View {
     private Bitmap arriving;
     private boolean forward = true;
     private boolean turning = false;
+    private boolean bookmarkOpening = false;
+    private int bookmarkSheets = 8;
+    private float bookmarkProgress = 0f;
+    private final Paint fanPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path fanPath = new Path();
     private float turnProgress = 0;
     private float opening = 1;
     private float zoom = 1f;
@@ -174,6 +179,7 @@ public class PageCurlView extends View {
         animation.addUpdateListener(a->{magnifierAlpha=(float)a.getAnimatedValue();invalidate();});
         animation.start();
     }
+    public RectF getVisiblePageBounds(){return new RectF(getPageRect());}
     public float getZoom() { return zoom; }
     public void setZoom(float newZoom) {
         zoom = Math.max(1f, Math.min(3f, newZoom));
@@ -185,6 +191,7 @@ public class PageCurlView extends View {
         if (page != null && page != value && !page.isRecycled()) page.recycle();
         if (arriving != null && arriving != value && arriving != page && !arriving.isRecycled()) arriving.recycle();
         turning = false;
+        bookmarkOpening = false;
         page = value;
         arriving = null;
         panX = 0;
@@ -239,6 +246,119 @@ public class PageCurlView extends View {
         animator.start();
     }
 
+    /**
+     * Abre de forma visual un bloque de hojas hacia el separador.
+     * Para mantener fluidez en móviles, dibuja un abanico de hojas simulado,
+     * no rasteriza todas las páginas intermedias. La última es el PDF real.
+     */
+    public void openAtRibbon(Bitmap destination, boolean toNext, int crossedPages, Runnable finished){
+        if(destination==null)return;
+        if(page==null || crossedPages<=0){
+            setPage(destination);
+            if(finished!=null)finished.run();
+            return;
+        }
+        if(currentAnimator!=null)currentAnimator.cancel();
+        arriving=destination;
+        forward=toNext;
+        bookmarkSheets=Math.max(5,Math.min(15,5+(int)Math.sqrt(Math.max(1,crossedPages))));
+        turning=true;
+        bookmarkOpening=true;
+        opening=1f;
+        bookmarkProgress=0f;
+        ValueAnimator a=ValueAnimator.ofFloat(0f,1f);
+        currentAnimator=a;
+        a.setDuration(Math.min(1850,1050+Math.min(crossedPages,25)*21L));
+        a.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        a.addUpdateListener(v->{bookmarkProgress=(float)v.getAnimatedValue();invalidate();});
+        a.addListener(new android.animation.AnimatorListenerAdapter(){
+            boolean cancelled=false;
+            @Override public void onAnimationCancel(android.animation.Animator animation){cancelled=true;}
+            @Override public void onAnimationEnd(android.animation.Animator animation){
+                if(cancelled)return;
+                Bitmap old=page;
+                page=arriving;
+                arriving=null;
+                turning=false;
+                bookmarkOpening=false;
+                bookmarkProgress=1;
+                panX=panY=0;
+                if(old!=null && old!=page && !old.isRecycled())old.recycle();
+                invalidate();
+                if(finished!=null)finished.run();
+            }
+        });
+        a.start();
+    }
+    private static float clamp01(float v){return Math.max(0f,Math.min(1f,v));}
+    private float smooth(float t){float p=clamp01(t);return p*p*(3f-2f*p);}
+    private void drawBookmarkFan(Canvas canvas,RectF rect){
+        float p=bookmarkProgress;
+        float w=rect.width(),h=rect.height();
+        // Página de destino: ya está preparada antes de iniciar la animación.
+        drawSheet(canvas,arriving,rect);
+        float oldVisible=clamp01(1f-p*1.7f);
+        if(oldVisible>.001f && page!=null){
+            canvas.save();
+            if(forward)canvas.clipRect(rect.left,rect.top,rect.left+w*oldVisible,rect.bottom);
+            else canvas.clipRect(rect.right-w*oldVisible,rect.top,rect.right,rect.bottom);
+            drawSheet(canvas,page,rect);
+            canvas.restore();
+        }
+        float fadeOut=1f-smooth((p-.78f)/.22f);
+        float spine=forward?rect.left+w*.075f:rect.right-w*.075f;
+        // Sombras, grosor y hojas en abanico: pasan de derecha a izquierda.
+        for(int i=bookmarkSheets-1;i>=0;i--){
+            float stagger=(float)i/bookmarkSheets;
+            float progress=smooth((p-stagger*.30f)/.72f);
+            if(progress<=.001f)continue;
+            float edge=forward
+                ? rect.right-(rect.right-spine)*progress
+                : rect.left+(spine-rect.left)*progress;
+            float bend=(float)Math.sin(progress*Math.PI)*dp(15);
+            float yTop=rect.top+dp(1)+bend*.22f;
+            float yBottom=rect.bottom-dp(1)-bend*.15f;
+            fanPath.reset();
+            fanPath.moveTo(spine,rect.top);
+            fanPath.quadTo((spine+edge)*.5f,yTop-bend,edge,yTop);
+            fanPath.quadTo(edge+(forward?-bend:bend)*.55f,rect.centerY(),edge,yBottom);
+            fanPath.quadTo((spine+edge)*.5f,rect.bottom+bend,spine,rect.bottom);
+            fanPath.close();
+            float leafAlpha=fadeOut*(.36f+.53f*(1f-stagger));
+            fanPaint.setStyle(Paint.Style.FILL);
+            fanPaint.setColor((Math.min(240,(int)(leafAlpha*230))<<24)|0x00F9F0E4);
+            canvas.drawPath(fanPath,fanPaint);
+            fanPaint.setStyle(Paint.Style.STROKE);
+            fanPaint.setStrokeWidth(dp(.7f));
+            fanPaint.setColor((Math.min(155,(int)(fadeOut*130))<<24)|0x0089775F);
+            canvas.drawPath(fanPath,fanPaint);
+            fanPaint.setStyle(Paint.Style.FILL);
+            float shadow=dp(18);
+            fanPaint.setShader(new LinearGradient(
+                edge-(forward?shadow:-shadow),0,
+                edge+(forward?shadow:-shadow),0,
+                new int[]{0x00000000,((int)(72*fadeOut)<<24)|0x002B1A0F,0x00000000},
+                null,Shader.TileMode.CLAMP));
+            canvas.drawRect(Math.min(edge-shadow,edge+shadow),rect.top,
+                Math.max(edge-shadow,edge+shadow),rect.bottom,fanPaint);
+            fanPaint.setShader(null);
+        }
+        // El conjunto de páginas ya pasadas se acomoda a la izquierda.
+        float settled=smooth((p-.20f)/.75f)*fadeOut;
+        if(settled>.001f){
+            float layerSpan=dp(5+bookmarkSheets*.65f)*settled;
+            fanPaint.setStyle(Paint.Style.STROKE);
+            for(int i=0;i<bookmarkSheets;i++){
+                float shift=(float)i/bookmarkSheets*layerSpan;
+                float x=forward?rect.left-shift:rect.right+shift;
+                fanPaint.setStrokeWidth(dp(.65f));
+                fanPaint.setColor(((int)(125*settled)<<24)|0x00A88D70);
+                canvas.drawLine(x,rect.top+dp(3),x,rect.bottom-dp(4),fanPaint);
+            }
+            fanPaint.setStyle(Paint.Style.FILL);
+        }
+    }
+
     private RectF getPageRect() {
         if(page==null)return new RectF(0,0,getWidth(),getHeight());
         float maxBookW=Math.max(1f,getWidth()-dp(48));
@@ -271,7 +391,9 @@ public class PageCurlView extends View {
         canvas.save();
         canvas.clipRect(0,0,getWidth(),getHeight());
         if(fullscreenProgress<0.99f) drawBookBackdrop(canvas,rect,1f-fullscreenProgress);
-        if (opening < 1 && !turning) {
+        if (bookmarkOpening && arriving!=null) {
+            drawBookmarkFan(canvas,rect);
+        } else if (opening < 1 && !turning) {
             Camera camera = new Camera();
             Matrix matrix = new Matrix();
             camera.save();
