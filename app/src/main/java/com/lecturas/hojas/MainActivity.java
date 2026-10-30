@@ -771,7 +771,7 @@ public class MainActivity extends Activity {
         modeTextButton.setBackground(bg(textMode?ACCENT:(nightMode?0xFF353943:WHITE),13,Color.TRANSPARENT));
         modeBookButton.setTextColor(textMode?(nightMode?WHITE:INK):Color.WHITE);
         modeTextButton.setTextColor(textMode?Color.WHITE:(nightMode?WHITE:INK));
-        if (!textMode) curlView.setPaperColor(nightMode?0xFF20232B:0xFFE9DECC,Color.WHITE);
+        if (!textMode) curlView.setPaperColor(darkTheme()?0xFF111B2C:(nightMode?0xFF20232B:0xFFE9DECC),Color.WHITE);
         refreshRibbonViews();
     }
     private void updatePageUI() {
