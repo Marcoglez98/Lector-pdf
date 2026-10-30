@@ -43,41 +43,85 @@ public class NeonLibraryView extends ScrollView {
     private final TextView[] filters=new TextView[3];
     private final EditText search;
     private String selected="Todos";
-    private static final int BACK=0xFF080F1A,WHITE=0xFFF2ECFF,
-        MUTED=0xFFB1ACCF,CYAN=0xFF00D9FF,PINK=0xFFFF2D9B,
-        PURPLE=0xFF9D4CFF,CARD=0xFF171A36;
+    private int BACK,WHITE,MUTED,CYAN,PINK,PURPLE,CARD;
+    private int BACK2,CARD2,EDGE,PROGRESS;
+    private String titleFirst,titleSecond,subtitle;
+    private String motif="✦";
+    private final String theme;
+    private void chooseTheme(String key){
+        switch(key){
+            case "aurora":
+                BACK=0xFF061A28;BACK2=0xFF103647;WHITE=0xFFF5F1DA;
+                MUTED=0xFFB7C6C3;CYAN=0xFF0DD7D0;PINK=0xFFFFB341;
+                PURPLE=0xFF008B91;CARD=0xFF133C50;CARD2=0xFF104559;
+                EDGE=0xFF488287;PROGRESS=0xFF0DD7D0;
+                titleFirst="AURORA";titleSecond="LITERARIA";
+                subtitle="Cada libro es un nuevo amanecer.\\nHistorias que iluminan tu día.";
+                motif="☀";
+                break;
+            case "jardin":
+                BACK=0xFFFFF7E9;BACK2=0xFFFFE7CB;WHITE=0xFF244D48;
+                MUTED=0xFF72645B;CYAN=0xFF068F91;PINK=0xFFE11569;
+                PURPLE=0xFFE11569;CARD=0xFFFFFDFC;CARD2=0xFFFFF1E5;
+                EDGE=0xFFEBBDCC;PROGRESS=0xFF0A9CA5;
+                titleFirst="JARDÍN";titleSecond="BOHEMIO";
+                subtitle="Historias que florecen contigo.\\nUn rincón de flores y libros.";
+                motif="✿";
+                break;
+            case "talavera":
+                BACK=0xFFFFF4E4;BACK2=0xFFFFE9D1;WHITE=0xFF12356F;
+                MUTED=0xFF6C5775;CYAN=0xFF1254C1;PINK=0xFFFF8300;
+                PURPLE=0xFF1254C1;CARD=0xFFFFFFFF;CARD2=0xFFFFF6EF;
+                EDGE=0xFF9CB3D3;PROGRESS=0xFFFF8300;
+                titleFirst="TALAVERA";titleSecond="POP";
+                subtitle="¡Libros que te llevan más lejos!\\nColor, tradición y lectura.";
+                motif="❀";
+                break;
+            default:
+                BACK=0xFF080F1A;BACK2=0xFF171130;WHITE=0xFFF2ECFF;
+                MUTED=0xFFB1ACCF;CYAN=0xFF00D9FF;PINK=0xFFFF2D9B;
+                PURPLE=0xFF9D4CFF;CARD=0xFF171A36;CARD2=0xFF192544;
+                EDGE=0xFF453665;PROGRESS=0xFF00D9FF;
+                titleFirst="NEÓN";titleSecond="LITERARIO";
+                subtitle="Más que PDFs, mundos por vivir.\\nTus historias siempre contigo.";
+                motif="✦";
+        }
+    }
 
-    public NeonLibraryView(Activity activity,SharedPreferences prefs,Actions actions){
+    public NeonLibraryView(Activity activity,SharedPreferences prefs,String theme,Actions actions){
         super(activity);
         this.activity=activity;this.prefs=prefs;this.actions=actions;
+        this.theme=theme;
+        chooseTheme(theme);
         setFillViewport(true);
         setVerticalScrollBarEnabled(false);
-        setBackground(gradient(0xFF0A0F21,0xFF130E29,0));
+        setBackground(gradient(BACK,BACK2,0));
         LinearLayout main=column();
         main.setPadding(dp(20),dp(18),dp(20),dp(28));
         addView(main,new LayoutParams(-1,-1));
         LinearLayout header=row();
-        TextView logo=text("✦  HOJAS  /  LECTOR PDF",12,CYAN,true);
+        TextView logo=text(motif+"  HOJAS  /  LECTOR PDF",12,CYAN,true);
         logo.setLetterSpacing(.13f);
         header.addView(logo,new LinearLayout.LayoutParams(0,dp(42),1));
-        TextView themes=button("◈  Temas",13,CYAN,0xFF19233E);
+        TextView themes=button("◈  Temas",13,CYAN,CARD);
         themes.setOnClickListener(v->actions.changeTheme());
         header.addView(themes);
         add(main,header,0,0,0,20);
-        TextView neon=text("NEÓN",38,CYAN,true);
+        TextView neon=text(titleFirst,38,CYAN,true);
         neon.setTypeface(Typeface.create("serif",Typeface.BOLD));
-        neon.setShadowLayer(dp(12),0,0,0x9900AFFF);
+        if(theme.equals("neon")||theme.equals("aurora"))
+            neon.setShadowLayer(dp(10),0,0,CYAN&0x77FFFFFF);
         add(main,neon,0,0,0,0);
-        TextView title=text("LITERARIO",38,PINK,true);
+        TextView title=text(titleSecond,38,PINK,true);
         title.setTypeface(Typeface.create("serif",Typeface.BOLD));
-        title.setShadowLayer(dp(12),0,0,0x99DA169C);
+        if(theme.equals("neon"))
+            title.setShadowLayer(dp(10),0,0,0x99DA169C);
         add(main,title,0,-8,0,13);
-        TextView desc=text("Más que PDFs, mundos por vivir.\nTus historias siempre contigo.",
-            15,MUTED,false);
+        TextView desc=text(subtitle,15,MUTED,false);
         desc.setLineSpacing(dp(3),1.1f);
         add(main,desc,0,0,0,24);
         TextView open=button("＋   ABRIR UN PDF",17,Color.WHITE,PURPLE);
-        open.setBackground(gradient(0xFF5D3BD1,0xFFC32A9E,15));
+        open.setBackground(gradient(PURPLE,theme.equals("neon")?0xFFC32A9E:PINK,15));
         open.setElevation(dp(6));
         open.setOnClickListener(v->actions.addPdf());
         add(main,open,0,0,0,26);
@@ -91,7 +135,7 @@ public class NeonLibraryView extends ScrollView {
         search.setHintTextColor(MUTED);
         search.setTextColor(WHITE);
         search.setPadding(dp(14),0,dp(14),0);
-        search.setBackground(gradient(0xFF1E2644,0xFF13172D,13));
+        search.setBackground(gradient(CARD,CARD2,13));
         LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(47));
         sp.bottomMargin=dp(15);
         main.addView(search,sp);
@@ -115,7 +159,7 @@ public class NeonLibraryView extends ScrollView {
             public void afterTextChanged(Editable e){}
         });
         render();
-        TextView footer=text("✧  LEER  ·  EXPLORAR  ·  SENTIR  ·  CONTINUAR",
+        TextView footer=text(motif+"  LEER  ·  EXPLORAR  ·  SENTIR  ·  CONTINUAR",
             11,CYAN,true);
         footer.setLetterSpacing(.08f);footer.setGravity(Gravity.CENTER);
         add(main,footer,0,20,0,20);
@@ -135,7 +179,7 @@ public class NeonLibraryView extends ScrollView {
     private GradientDrawable gradient(int a,int b,int rad){
         GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});
         g.setCornerRadius(dp(rad));
-        if(rad>0)g.setStroke(dp(1),0xFF453665);
+        if(rad>0)g.setStroke(dp(1),EDGE);
         return g;
     }
     private TextView text(String s,int size,int color,boolean bold){
@@ -173,7 +217,7 @@ public class NeonLibraryView extends ScrollView {
         grid.removeAllViews();
         for(TextView filter:filters){
             boolean on=selected.contentEquals(filter.getText());
-            filter.setBackground(gradient(on?0xFF6742CF:CARD,on?0xFFC62BA4:CARD,12));
+            filter.setBackground(gradient(on?PURPLE:CARD,on?PINK:CARD,12));
             filter.setTextColor(on?Color.WHITE:MUTED);
         }
         JSONArray entries=history();
@@ -201,7 +245,7 @@ public class NeonLibraryView extends ScrollView {
             empty.setGravity(Gravity.CENTER);
             empty.setLineSpacing(dp(5),1f);
             empty.setPadding(dp(18),dp(38),dp(18),dp(38));
-            empty.setBackground(gradient(0xFF172445,0xFF10152B,17));
+            empty.setBackground(gradient(CARD,CARD2,17));
             add(grid,empty,0,5,0,12);
             return;
         }
@@ -220,14 +264,14 @@ public class NeonLibraryView extends ScrollView {
         String id=key(uri);
         LinearLayout item=column();
         item.setPadding(dp(8),dp(8),dp(8),dp(12));
-        item.setBackground(gradient(0xFF192544,0xFF11162F,15));
+        item.setBackground(gradient(CARD,CARD2,15));
         item.setElevation(dp(4));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
         lp.setMargins(dp(index%2==0?0:6),0,dp(index%2==0?6:0),0);
         row.addView(item,lp);
         FrameLayout cover=new FrameLayout(activity);
-        cover.setBackground(gradient(index%3==0?0xFF284A74:index%3==1?0xFF62235B:0xFF145E68,
-            0xFF0C1536,9));
+        cover.setBackground(gradient(
+            index%3==0?PURPLE:index%3==1?CYAN:PINK,CARD2,9));
         item.addView(cover,new LinearLayout.LayoutParams(-1,dp(175)));
         File file=new File(new File(activity.getFilesDir(),"cover_thumbnails"),id+".jpg");
         if(file.exists()&&file.length()>1024){
@@ -261,8 +305,8 @@ public class NeonLibraryView extends ScrollView {
         item.addView(progress);
         ProgressBar bar=new ProgressBar(activity,null,android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100);bar.setProgress(percent);
-        bar.setProgressTintList(ColorStateList.valueOf(index%2==0?CYAN:PINK));
-        bar.setProgressBackgroundTintList(ColorStateList.valueOf(0xFF393650));
+        bar.setProgressTintList(ColorStateList.valueOf(index%2==0?PROGRESS:PINK));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(EDGE));
         LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(5));
         bp.topMargin=dp(10);item.addView(bar,bp);
         item.setContentDescription("Abrir "+name);
