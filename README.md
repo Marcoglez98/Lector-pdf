@@ -96,3 +96,13 @@ No confundas los archivos del workflow de **depuración** con los APK de Hojas E
 - Menú de acciones de la cinta arreglado: al tocar la cinta sobre el papel puedes abrirla, editar su nota o retirarla; mantener pulsada la cinta muestra la opción de eliminar.
 - La versión de prueba `temas` usa identificador `com.lecturas.hojas.temas` para instalarse junto con las anteriores.
 - La variante `estable` se actualiza sobre Hojas Estable 1.5/1.6 si se firma con el certificado permanente existente; conserva los datos guardados en ese identificador de aplicación.
+
+## Versión 1.8 — Portadas y paletas de la biblioteca
+- Se elimina el selector de **temas** y todas las apariencias aplicadas a la lectura.
+- Se mantiene un único diseño de biblioteca con portadas reales de PDF, búsqueda, filtro de libros, progreso y decoración coloreada alrededor de las portadas.
+- En la **pantalla principal**, el botón **Colores / Paletas** ofrece cinco combinaciones cromáticas sin alterar la pantalla de lectura.
+- El lector conserva su aspecto clásico y su modo noche, además de narrador, lupa, resaltados, favoritos, cintas con animaciones y el botón de quitar.
+- Los colores se recuerdan en `library_palette`. Los valores antiguos de `visual_theme` se migran solo al color de portada, no al lector.
+- Para instalar el APK con una firma de actualización igual a la de Hojas Estable anterior, usa el flujo de GitHub Actions **Hojas APK estable firmado (actualizable)**. La APK normal de depuración no sirve para actualizar instalaciones firmadas con otra clave.
+
+**Descarga:** GitHub > Actions > ejecución correcta de **Hojas 1.8 — APK biblioteca con paletas** > Artifacts > **Hojas-1.8-Biblioteca-Paletas-Prueba**. El archivo es un ZIP que contiene el APK.
