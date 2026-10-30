@@ -336,6 +336,51 @@ public class MainActivity extends Activity {
         screen.addView(sc);
     }
 
+    private void showNeonLibrary(){
+        screen.removeAllViews();
+        NeonLibraryView library=new NeonLibraryView(this,prefs,new NeonLibraryView.Actions(){
+            @Override public void open(Uri uri){openPdf(uri);}
+            @Override public void addPdf(){pickPdf();}
+            @Override public void changeTheme(){showThemes();}
+        });
+        screen.addView(library,new FrameLayout.LayoutParams(-1,-1));
+    }
+    private void rememberLibraryBook(String uri,String title){
+        JSONArray old;
+        try{old=new JSONArray(prefs.getString("library_history","[]"));}
+        catch(Exception ex){old=new JSONArray();}
+        JSONArray updated=new JSONArray();
+        try{
+            JSONObject book=new JSONObject();
+            book.put("uri",uri);book.put("title",title);
+            updated.put(book);
+            for(int i=0;i<old.length()&&updated.length()<60;i++){
+                JSONObject other=old.optJSONObject(i);
+                if(other!=null&&!uri.equals(other.optString("uri","")))
+                    updated.put(other);
+            }
+            prefs.edit().putString("library_history",updated.toString()).apply();
+        }catch(Exception ignored){}
+    }
+    private void saveLibraryCover(String key){
+        if(renderer==null||renderer.getPageCount()==0)return;
+        File directory=new File(getFilesDir(),"cover_thumbnails");
+        if(!directory.exists()&&!directory.mkdirs())return;
+        File coverFile=new File(directory,key+".jpg");
+        if(coverFile.exists()&&coverFile.length()>1024)return;
+        try(PdfRenderer.Page pg=renderer.openPage(0)){
+            float scale=Math.min(280f/Math.max(1,pg.getWidth()),
+                400f/Math.max(1,pg.getHeight()));
+            Bitmap cover=Bitmap.createBitmap(Math.max(1,(int)(pg.getWidth()*scale)),
+                Math.max(1,(int)(pg.getHeight()*scale)),Bitmap.Config.ARGB_8888);
+            cover.eraseColor(Color.WHITE);
+            pg.render(cover,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+            try(FileOutputStream out=new FileOutputStream(coverFile)){
+                cover.compress(Bitmap.CompressFormat.JPEG,78,out);
+            } finally{cover.recycle();}
+        }catch(Exception ignored){}
+    }
+
     private void pickPdf() {
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.setType("application/pdf");
@@ -404,11 +449,14 @@ public class MainActivity extends Activity {
                 renderer=new PdfRenderer(pdfDescriptor);
                 int pages=renderer.getPageCount();
                 currentCachedFile=cached;
+                saveLibraryCover(storedBookKey);
                 // La extracción de texto se carga solo cuando el usuario la necesita.
                 extractedTextCache.clear();
                 runOnUiThread(() -> {
                     if (version!=openVersion || isFinishing()) return;
                     totalPages=pages;
+                    prefs.edit().putInt("pages_"+storedBookKey,pages).apply();
+                    rememberLibraryBook(uri.toString(),storedBookName);
                     currentPage=Math.min(pages-1,Math.max(0,prefs.getInt("position_"+storedBookKey,0)));
                     textMode=false;
                     prefs.edit().putString("lastUri",uri.toString()).putString("lastName",storedBookName).apply();
