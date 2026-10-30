@@ -303,49 +303,6 @@ public class MainActivity extends Activity {
         readingFullscreen=false;
         setSystemBars(false);
         showNeonLibrary();
-        if(true)return;
-        screen.removeAllViews();
-        ScrollView sc = new ScrollView(this);
-        sc.setFillViewport(true);
-        sc.setBackgroundColor(PAPER);
-        LinearLayout root=vertical(); root.setPadding(dp(24),dp(28),dp(24),dp(26));
-        sc.addView(root);
-        TextView brand=label("HOJAS  /  LECTOR PDF",12,ACCENT,true);
-        brand.setLetterSpacing(0.17f); margin(brand,root,0,0,0,48);
-        TextView logo=label("◕",62,ACCENT,false); logo.setTypeface(Typeface.SERIF);
-        margin(logo,root,0,0,0,8);
-        TextView header=label("Tu biblioteca,\na tu manera.",38,INK,true);
-        header.setTypeface(Typeface.create("serif",Typeface.BOLD));
-        margin(header,root,0,0,0,12);
-        TextView sub=label("Abre tus libros en PDF, pasa sus hojas con suavidad y guarda las frases que quieras recordar.",16,MUTED,false);
-        sub.setLineSpacing(dp(4),1.1f); margin(sub,root,0,0,0,29);
-        TextView open=clickable("＋   Abrir un PDF",18,Color.WHITE,ACCENT,this::pickPdf);
-        margin(open,root,0,0,0,28);
-
-        String recent = prefs.getString("lastUri",null);
-        if (recent!=null) {
-            TextView recentTitle=label("CONTINUAR LEYENDO",12,ACCENT,true);
-            recentTitle.setLetterSpacing(0.12f); margin(recentTitle,root,0,5,0,12);
-            LinearLayout recentCard=vertical();
-            recentCard.setPadding(dp(18),dp(17),dp(18),dp(17));
-            recentCard.setBackground(bg(WHITE,17,LINE));
-            TextView name=label("▤   "+prefs.getString("lastName","Mi libro"),17,INK,true);
-            name.setMaxLines(2); name.setEllipsize(TextUtils.TruncateAt.END);
-            recentCard.addView(name);
-            TextView hint=label("Toca para continuar donde te quedaste",13,MUTED,false);
-            LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.topMargin=dp(8);recentCard.addView(hint,hp);
-            recentCard.setOnClickListener(v -> openPdf(Uri.parse(recent)));
-            margin(recentCard,root,0,0,0,25);
-        }
-        LinearLayout tip=vertical();tip.setPadding(dp(17),dp(16),dp(17),dp(17));
-        tip.setBackground(bg(0xFFEDE3D4,18,Color.TRANSPARENT));
-        TextView tip1=label("✦  Un rincón para tus frases",16,INK,true);
-        TextView tip2=label("En el modo Texto puedes mantener pulsada una palabra, ajustar la selección y elegir Resaltar. Tus frases se guardan en Favoritos.",14,MUTED,false);
-        tip2.setLineSpacing(dp(3),1.1f);
-        tip.addView(tip1);
-        LinearLayout.LayoutParams x=new LinearLayout.LayoutParams(-1,-2);x.topMargin=dp(10);tip.addView(tip2,x);
-        margin(tip,root,0,0,0,0);
-        screen.addView(sc);
     }
 
     private void showNeonLibrary(){
