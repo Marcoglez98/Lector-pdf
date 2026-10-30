@@ -127,6 +127,7 @@ public class MainActivity extends Activity {
     private LinearLayout readerToolbar, readerModes, readerControls, ribbonShelf, ribbonSlots;
     private View readerBorder;
     private RibbonTabView pageRibbon;
+    private ValueAnimator ribbonMotion;
     private GestureDetector textTapDetector;
     private Magnifier nativeTextMagnifier;
     private boolean textLensActive=false;
@@ -229,6 +230,7 @@ public class MainActivity extends Activity {
 
     private void showLibrary() {
         if(narrator!=null)narrator.stop();
+        if(ribbonMotion!=null)ribbonMotion.cancel();
         requestVersion++;
         readingFullscreen=false;
         setSystemBars(false);
@@ -514,18 +516,16 @@ public class MainActivity extends Activity {
         pageLoading.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
         FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(dp(42),dp(42),Gravity.CENTER);
         readingSurface.addView(pageLoading,lp);
+        // Cinta delgada anclada al borde superior, junto al lomo;
+        // no tapa el cuerpo del texto y sobresale por debajo del papel.
         pageRibbon=new RibbonTabView(this,"",true,true);
-        FrameLayout.LayoutParams ribbonPosition=new FrameLayout.LayoutParams(dp(36),dp(230),
-            Gravity.TOP|Gravity.CENTER_HORIZONTAL);
-        ribbonPosition.topMargin=dp(5);
+        FrameLayout.LayoutParams ribbonPosition=new FrameLayout.LayoutParams(dp(25),dp(280),
+            Gravity.TOP|Gravity.LEFT);
         readingSurface.addView(pageRibbon,ribbonPosition);
-        // La cinta ocupa aproximadamente dos tercios de una hoja real.
-        readingSurface.addOnLayoutChangeListener((v,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{
-            if(pageRibbon==null || right-left<=0 || bottom-top<=0)return;
-            int target=Math.max(dp(160),Math.min(dp(365),(int)((bottom-top)*0.65f)));
-            FrameLayout.LayoutParams params=(FrameLayout.LayoutParams)pageRibbon.getLayoutParams();
-            if(params.height!=target){params.height=target;pageRibbon.setLayoutParams(params);}
-        });
+        readingSurface.addOnLayoutChangeListener((v,left,top,right,bottom,
+            oldLeft,oldTop,oldRight,oldBottom)->positionPageRibbon());
+        curlView.addOnLayoutChangeListener((v,left,top,right,bottom,
+            oldLeft,oldTop,oldRight,oldBottom)->positionPageRibbon());
         pageRibbon.setOnClickListener(v->showCurrentRibbon());
         pageRibbon.setVisibility(View.GONE);
 
@@ -1131,11 +1131,16 @@ public class MainActivity extends Activity {
                 nightMode?0xFFD2A6A7:MUTED,false);
             ribbonSlots.addView(hint);
         }
-        boolean showTop=top!=null && (!readingFullscreen || controlsAnimator!=null);
+        boolean showTop=top!=null && !textMode &&
+            (!readingFullscreen || controlsAnimator!=null);
+        boolean previouslyVisible=pageRibbon.getVisibility()==View.VISIBLE;
         pageRibbon.setVisibility(showTop?View.VISIBLE:View.GONE);
-        if(showTop && controlsAnimator==null){
-            pageRibbon.setAlpha(0f);
-            pageRibbon.animate().alpha(1f).setDuration(260).start();
+        if(showTop){
+            positionPageRibbon();
+            if(!previouslyVisible && ribbonMotion==null && controlsAnimator==null){
+                pageRibbon.setAlpha(0f);
+                pageRibbon.animate().alpha(1f).setDuration(260).start();
+            }
         }
         if(top!=null){
             final JSONObject selected=top;
@@ -1213,6 +1218,7 @@ public class MainActivity extends Activity {
             item.put("createdAt",System.currentTimeMillis());
             all.put(item);
             writeRibbons(all);
+            if(page==currentPage && !textMode && !readingFullscreen)playRibbonDrop();
             toast("Cinta roja colocada en la página "+(page+1));
         }catch(Exception ex){toast("No se pudo guardar la cinta.");}
     }
@@ -1259,6 +1265,147 @@ public class MainActivity extends Activity {
                     .setNegativeButton("Cancelar",null).show();
             }).setNegativeButton("Cerrar",null).show();
     }
+
+    private void positionPageRibbon(){
+        if(pageRibbon==null || curlView==null || readingSurface==null
+            || readingSurface.getWidth()==0 || readingSurface.getHeight()==0)return;
+        RectF paper=curlView.getVisiblePageBounds();
+        if(paper.width()<=0 || paper.height()<=0)return;
+        FrameLayout.LayoutParams params=(FrameLayout.LayoutParams)pageRibbon.getLayoutParams();
+        if(params==null)return;
+        // Lateral izquierdo, pegada al lomo y evitando el texto del PDF.
+        int newWidth=dp(25);
+        int newHeight=Math.max(dp(65),Math.min(readingSurface.getHeight(),
+            Math.round(paper.height()+dp(11))));
+        int left=Math.max(0,Math.round(paper.left+dp(3)));
+        int top=Math.max(0,Math.round(paper.top-dp(6)));
+        if(params.width!=newWidth || params.height!=newHeight ||
+            params.leftMargin!=left || params.topMargin!=top){
+            params.width=newWidth;
+            params.height=newHeight;
+            params.leftMargin=left;
+            params.topMargin=top;
+            params.gravity=Gravity.TOP|Gravity.LEFT;
+            pageRibbon.setLayoutParams(params);
+        }
+    }
+
+    private void playRibbonDrop(){
+        if(pageRibbon==null || pageRibbon.getVisibility()!=View.VISIBLE)return;
+        if(ribbonMotion!=null)ribbonMotion.cancel();
+        pageRibbon.animate().cancel();
+        pageRibbon.setPivotX(pageRibbon.getWidth()*.5f);
+        pageRibbon.setPivotY(0);
+        ValueAnimator animation=ValueAnimator.ofFloat(0,1);
+        ribbonMotion=animation;
+        animation.setDuration(1080);
+        animation.setInterpolator(new android.view.animation.LinearInterpolator());
+        animation.addUpdateListener(a->{
+            float t=(float)a.getAnimatedValue();
+            float drop;
+            if(t<=.72f){
+                drop=(float)Math.pow(t/.72f,1.75);
+            }else{
+                float u=t-.72f;
+                drop=1f+.072f*(float)Math.exp(-10*u)*
+                    (float)Math.sin(27*u);
+            }
+            pageRibbon.setScaleY(Math.max(.025f,drop));
+            pageRibbon.setTranslationY(-dp(24)*(1-Math.min(1,drop)));
+            pageRibbon.setRotation((float)(8*Math.sin(17*t)*
+                Math.exp(-3.3*t)*(1-t)));
+            pageRibbon.setAlpha(Math.min(1f,.3f+t*2.5f));
+        });
+        animation.addListener(new AnimatorListenerAdapter(){
+            @Override public void onAnimationEnd(Animator a){
+                if(ribbonMotion!=a)return;
+                ribbonMotion=null;
+                pageRibbon.setScaleY(1f);
+                pageRibbon.setTranslationY(0);
+                pageRibbon.setRotation(0);
+                pageRibbon.setAlpha(1f);
+            }
+        });
+        animation.start();
+    }
+
+    private void playRibbonSettle(){
+        if(pageRibbon==null || pageRibbon.getVisibility()!=View.VISIBLE)return;
+        if(ribbonMotion!=null)ribbonMotion.cancel();
+        pageRibbon.setPivotX(pageRibbon.getWidth()*.5f);
+        pageRibbon.setPivotY(0);
+        ValueAnimator animation=ValueAnimator.ofFloat(0,1);
+        ribbonMotion=animation;
+        animation.setDuration(760);
+        animation.addUpdateListener(a->{
+            float t=(float)a.getAnimatedValue();
+            float damping=(float)Math.exp(-4.3*t);
+            pageRibbon.setRotation((float)(6.5*Math.sin(16*t)*damping));
+            pageRibbon.setTranslationY(
+                (float)(dp(7)*Math.sin(12*t)*damping));
+        });
+        animation.addListener(new AnimatorListenerAdapter(){
+            @Override public void onAnimationEnd(Animator a){
+                if(ribbonMotion!=a)return;
+                ribbonMotion=null;
+                pageRibbon.setRotation(0);
+                pageRibbon.setTranslationY(0);
+                pageRibbon.setScaleY(1f);
+            }
+        });
+        animation.start();
+    }
+
+    private void openRibbonWithPages(int target){
+        if(busy || renderer==null || target<0 || target>=totalPages)return;
+        int source=currentPage;
+        if(narrator!=null)narrator.onManualPageChange();
+        busy=true;
+        setLoading(true);
+        final int request=++requestVersion;
+        io.execute(()->{
+            try{
+                Bitmap dest=renderBitmap(target);
+                PdfTextGeometry.Page geometry=new PdfTextGeometry.Page();
+                try{
+                    if(pdfTextDocument==null && currentCachedFile!=null)
+                        pdfTextDocument=PDDocument.load(currentCachedFile);
+                    if(pdfTextDocument!=null)
+                        geometry=PdfTextGeometry.extract(pdfTextDocument,target);
+                }catch(Exception ignored){}
+                final PdfTextGeometry.Page loadedGeometry=geometry;
+                runOnUiThread(()->{
+                    if(request!=requestVersion || isFinishing()){
+                        dest.recycle();return;
+                    }
+                    setLoading(false);
+                    if(pageRibbon!=null)pageRibbon.setVisibility(View.GONE);
+                    curlView.openAtRibbon(dest,target>source,Math.abs(target-source),()->{
+                        if(request!=requestVersion || isFinishing())return;
+                        currentPage=target;
+                        currentGeometry=loadedGeometry;
+                        geometryPage=target;
+                        refreshBookMarks();
+                        updatePageUI();
+                        rememberPosition();
+                        busy=false;
+                        refreshRibbonViews();
+                        positionPageRibbon();
+                        playRibbonSettle();
+                    });
+                });
+            }catch(Exception ex){
+                runOnUiThread(()->{
+                    if(request!=requestVersion || isFinishing())return;
+                    busy=false;
+                    setLoading(false);
+                    refreshRibbonViews();
+                    toast("No se pudo abrir el separador. Prueba de nuevo.");
+                });
+            }
+        });
+    }
+
     private void openRibbon(JSONObject item) {
         if(busy)return;
         int page=item.optInt("page",0);
@@ -1268,8 +1415,13 @@ public class MainActivity extends Activity {
             && page==currentPage)offset=textView.getText().toString().indexOf(item.optString("quote"));
         if(textMode&&offset>=0)pendingScrollOffset=offset;
         if(narrator!=null)narrator.onManualPageChange();
-        if(page!=currentPage)loadPageAt(page,animatedPages,page>currentPage);
-        else if(textMode && pendingScrollOffset>=0)showPageText(textView.getText().toString());
+        if(page!=currentPage) {
+            if(!textMode && animatedPages && curlView!=null)
+                openRibbonWithPages(page);
+            else loadPageAt(page,animatedPages,page>currentPage);
+        } else if(textMode && pendingScrollOffset>=0)
+            showPageText(textView.getText().toString());
+        else if(!textMode && !readingFullscreen)playRibbonSettle();
         toast("Cinta roja · Página "+(page+1)+(note.isEmpty()?"":" · "+note));
     }
 
