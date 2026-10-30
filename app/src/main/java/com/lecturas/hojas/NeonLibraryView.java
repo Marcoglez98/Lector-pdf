@@ -29,12 +29,12 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Locale;
 
-/** Pantalla Neón Literario: portadas reales de PDF, progreso y búsqueda local. */
+/** Biblioteca única con portadas reales de PDF y paletas de color. */
 public class NeonLibraryView extends ScrollView {
     public interface Actions {
         void open(Uri uri);
         void addPdf();
-        void changeTheme();
+        void changePalette();
     }
     private final Activity activity;
     private final SharedPreferences prefs;
@@ -47,9 +47,15 @@ public class NeonLibraryView extends ScrollView {
     private int BACK2,CARD2,EDGE,PROGRESS;
     private String titleFirst,titleSecond,subtitle;
     private String motif="✦";
-    private final String theme;
-    private void chooseTheme(String key){
+    private final String palette;
+    private void choosePalette(String key){
         switch(key){
+            case "clasico":
+                BACK=0xFFF7F1E7;BACK2=0xFFE9DCCB;WHITE=0xFF392B22;
+                MUTED=0xFF7E6C5B;CYAN=0xFF8F5E3A;PINK=0xFFB3263E;
+                PURPLE=0xFF8F5E3A;CARD=0xFFFFFCF7;CARD2=0xFFF2E7D9;
+                EDGE=0xFFDBC9B7;PROGRESS=0xFF8F5E3A;
+                break;
             case "aurora":
                 BACK=0xFF061A28;BACK2=0xFF103647;WHITE=0xFFF5F1DA;
                 MUTED=0xFFB7C6C3;CYAN=0xFF0DD7D0;PINK=0xFFFFB341;
@@ -88,11 +94,11 @@ public class NeonLibraryView extends ScrollView {
         }
     }
 
-    public NeonLibraryView(Activity activity,SharedPreferences prefs,String theme,Actions actions){
+    public NeonLibraryView(Activity activity,SharedPreferences prefs,String palette,Actions actions){
         super(activity);
         this.activity=activity;this.prefs=prefs;this.actions=actions;
-        this.theme=theme;
-        chooseTheme(theme);
+        this.palette=palette;
+        choosePalette(palette);
         setFillViewport(true);
         setVerticalScrollBarEnabled(false);
         setBackground(gradient(BACK,BACK2,0));
@@ -100,28 +106,26 @@ public class NeonLibraryView extends ScrollView {
         main.setPadding(dp(20),dp(18),dp(20),dp(28));
         addView(main,new LayoutParams(-1,-1));
         LinearLayout header=row();
-        TextView logo=text(motif+"  HOJAS  /  LECTOR PDF",12,CYAN,true);
+        TextView logo=text("✦  HOJAS  /  LECTOR PDF",12,CYAN,true);
         logo.setLetterSpacing(.13f);
         header.addView(logo,new LinearLayout.LayoutParams(0,dp(42),1));
-        TextView themes=button("◈  Temas",13,CYAN,CARD);
-        themes.setOnClickListener(v->actions.changeTheme());
-        header.addView(themes);
+        TextView palettes=button("◈  Colores",13,CYAN,CARD);
+        palettes.setContentDescription("Cambiar colores de la biblioteca");
+        palettes.setOnClickListener(v->actions.changePalette());
+        header.addView(palettes);
         add(main,header,0,0,0,20);
-        TextView neon=text(titleFirst,38,CYAN,true);
-        neon.setTypeface(Typeface.create("serif",Typeface.BOLD));
-        if(theme.equals("neon")||theme.equals("aurora"))
-            neon.setShadowLayer(dp(10),0,0,CYAN&0x77FFFFFF);
-        add(main,neon,0,0,0,0);
-        TextView title=text(titleSecond,38,PINK,true);
+        TextView title=text("Tu biblioteca,",32,WHITE,true);
         title.setTypeface(Typeface.create("serif",Typeface.BOLD));
-        if(theme.equals("neon"))
-            title.setShadowLayer(dp(10),0,0,0x99DA169C);
-        add(main,title,0,-8,0,13);
-        TextView desc=text(subtitle,15,MUTED,false);
+        add(main,title,0,0,0,0);
+        TextView subtitle=text("a tu manera.",32,PINK,true);
+        subtitle.setTypeface(Typeface.create("serif",Typeface.BOLD));
+        add(main,subtitle,0,-4,0,13);
+        TextView desc=text("Tus libros y sus portadas, con los colores que elijas.\\n"+
+            "Lee y continúa desde donde te quedaste.",15,MUTED,false);
         desc.setLineSpacing(dp(3),1.1f);
         add(main,desc,0,0,0,24);
         TextView open=button("＋   ABRIR UN PDF",17,Color.WHITE,PURPLE);
-        open.setBackground(gradient(PURPLE,theme.equals("neon")?0xFFC32A9E:PINK,15));
+        open.setBackground(gradient(PURPLE,PINK,15));
         open.setElevation(dp(6));
         open.setOnClickListener(v->actions.addPdf());
         add(main,open,0,0,0,26);
@@ -159,15 +163,15 @@ public class NeonLibraryView extends ScrollView {
             public void afterTextChanged(Editable e){}
         });
         render();
-        TextView footer=text(motif+"  LEER  ·  EXPLORAR  ·  SENTIR  ·  CONTINUAR",
+        TextView footer=text("✦  LEER  ·  EXPLORAR  ·  CONTINUAR",
             11,CYAN,true);
         footer.setLetterSpacing(.08f);footer.setGravity(Gravity.CENTER);
         add(main,footer,0,20,0,20);
         LinearLayout actionsRow=row();
         TextView addBook=button("＋ PDF",13,WHITE,CARD);
         addBook.setOnClickListener(v->actions.addPdf());
-        TextView switcher=button("✦ Estilos",13,CYAN,CARD);
-        switcher.setOnClickListener(v->actions.changeTheme());
+        TextView switcher=button("◈ Paletas",13,CYAN,CARD);
+        switcher.setOnClickListener(v->actions.changePalette());
         actionsRow.addView(addBook,new LinearLayout.LayoutParams(0,dp(46),1));
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);
         p.leftMargin=dp(10);actionsRow.addView(switcher,p);
@@ -272,6 +276,7 @@ public class NeonLibraryView extends ScrollView {
         FrameLayout cover=new FrameLayout(activity);
         cover.setBackground(gradient(
             index%3==0?PURPLE:index%3==1?CYAN:PINK,CARD2,9));
+        cover.setClipToOutline(true);
         item.addView(cover,new LinearLayout.LayoutParams(-1,dp(175)));
         File file=new File(new File(activity.getFilesDir(),"cover_thumbnails"),id+".jpg");
         if(file.exists()&&file.length()>1024){
@@ -289,6 +294,13 @@ public class NeonLibraryView extends ScrollView {
             art.setGravity(Gravity.CENTER);
             cover.addView(art,new FrameLayout.LayoutParams(-1,-1));
         }
+        // Color en el canto de cada portada: el contenido PDF no se altera.
+        View coloredSpine=new View(activity);
+        coloredSpine.setBackground(gradient(index%2==0?CYAN:PINK,
+            index%2==0?PURPLE:CYAN,4));
+        FrameLayout.LayoutParams edgeParams=new FrameLayout.LayoutParams(dp(6),-1,
+            Gravity.LEFT|Gravity.TOP);
+        cover.addView(coloredSpine,edgeParams);
         TextView title=text(name,15,WHITE,true);
         title.setTypeface(Typeface.create("serif",Typeface.BOLD));
         title.setMaxLines(2);
