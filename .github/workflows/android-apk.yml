@@ -41,13 +41,13 @@ jobs:
       - name: Publicar instalador principal
         uses: actions/upload-artifact@v4
         with:
-          name: Hojas-1.3-Principal
+          name: Hojas-1.4-Principal
           path: app/build/outputs/apk/principal/debug/app-principal-debug.apk
           if-no-files-found: error
 
       - name: Publicar prueba independiente
         uses: actions/upload-artifact@v4
         with:
-          name: Hojas-1.3-Libro-Real-Prueba
+          name: Hojas-1.4-Cinta-Viva-Prueba
           path: app/build/outputs/apk/prueba/debug/app-prueba-debug.apk
           if-no-files-found: error
