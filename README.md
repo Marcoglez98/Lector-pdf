@@ -42,3 +42,12 @@ El workflow de GitHub Actions genera dos variantes:
 - **Hojas-1.1-Narrador-Prueba** (APK de prueba independiente que puedes instalar junto a tu Hojas anterior).
 
 La firma de las APK de depuración puede variar entre ejecuciones. Antes de eliminar versiones anteriores, conserva tus datos; un APK con firma diferente no se instala como actualización directa.
+
+## Versión 1.3 — Libro físico, lupa y transiciones de lectura
+- **Libro realista:** vista Libro con fondo de papel, lomo sombreado, capas de hojas, luz en los bordes y la animación habitual al pasar páginas.
+- **Pantalla completa:** un toque oculta herramientas y decoración mediante una transición de 410 ms; doble toque devuelve los controles. El PDF vuelve a presentarse sin bordes de libro, centrado y ajustado a la pantalla.
+- **Lupa en modo Libro:** mantén pulsado el texto y aparece una lupa redonda con ampliación 2.35×; arrastra para explorar las palabras. Al levantar el dedo se desvanece.
+- **Lupa en texto ajustable:** utiliza la lupa nativa de Android 9+ al mantener pulsada una palabra y conserva la selección de texto.
+- **Cinta larga:** aparece sobre el centro de la hoja, con textura de satén, costuras y punta en V; toca la cinta para gestionar el punto de lectura. En pantalla completa queda oculta.
+- Las cintas siguen siendo por libro y compatibles con las guardadas en la versión anterior.
+- La versión de prueba usa identificador de aplicación `com.lecturas.hojas.libroreal` para que pueda instalarse junto a las versiones anteriores.
