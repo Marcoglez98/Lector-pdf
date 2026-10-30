@@ -8,8 +8,8 @@ android {
         applicationId 'com.lecturas.hojas'
         minSdk 26
         targetSdk 34
-        versionCode 8
-        versionName '1.7.0'
+        versionCode 9
+        versionName '1.8.0'
     }
     signingConfigs {
         hojasPermanente {
@@ -42,7 +42,7 @@ android {
             dimension 'distribucion'
             applicationIdSuffix '.temas'
             versionNameSuffix '-temas-prueba'
-            manifestPlaceholders = [hojasName: 'Hojas · Todos los temas']
+            manifestPlaceholders = [hojasName: 'Hojas · Paletas']
         }
         estable {
             dimension 'distribucion'
